@@ -13,6 +13,7 @@
   .caption{font-size:12px;color:#888;margin:2px 0 4px}
   .card{background:#f7f8fa;border-radius:12px;padding:10px 12px;margin-bottom:8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .idx-name{font-size:13px;color:#555}
   .idx-price{font-size:20px;font-weight:700;margin:2px 0}
   .idx-pct{font-size:13px;font-weight:600}
@@ -42,10 +43,6 @@
   .mode-row button.on-attack{background:#1e7a1e;border-color:#1e7a1e;color:#fff;font-weight:600}
   .mode-row button.on-careful{background:#c8961a;border-color:#c8961a;color:#fff;font-weight:600}
   .mode-row button.on-defend{background:#b02a2a;border-color:#b02a2a;color:#fff;font-weight:600}
-  .progress{height:8px;background:#eee;border-radius:4px;overflow:hidden;margin:10px 0 6px}
-  .progress>div{height:100%;background:#1677ff;border-radius:4px;transition:width .2s}
-  .check-ok{background:#eef7ee;border:1px solid #bfe3bf;color:#1e7a1e;border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px}
-  .check-wait{background:#f4f6f8;border:1px solid #e2e6ea;color:#555;border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px}
   .err{background:#fdeaea;border:1px solid #f3b8b8;color:#b02a2a;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0;display:none}
   .metrics{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
   .metric{background:#f7f8fa;border-radius:10px;padding:10px 8px;text-align:center}
@@ -59,13 +56,33 @@
   .note{font-size:12px;color:#999;margin-top:8px}
   details{margin-top:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px}
   summary{font-size:14px;font-weight:600;cursor:pointer}
+  /* V1.1 新增样式 */
+  .badge{font-size:12px;padding:3px 10px;border-radius:9px;font-weight:700;white-space:nowrap}
+  .badge.a{background:#eef7ee;color:#1e7a1e;border:1px solid #bfe3bf}
+  .badge.b{background:#fff8e8;color:#8a6d1a;border:1px solid #f0dcae}
+  .badge.c{background:#f4f6f8;color:#888;border:1px solid #e2e6ea}
+  .chk{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid #f5f5f5;font-size:13px}
+  .chk:last-child{border-bottom:none}
+  .chk input{width:22px;height:22px;margin:1px 0 0;flex:none}
+  .pool-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .pool-name{font-size:15px;font-weight:700}
+  .pool-code{font-size:12px;color:#888}
+  .pool-quote{font-size:12.5px;color:#555;margin-top:4px}
+  .limits{background:#f7f8fa;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#555;margin-top:10px}
+  .limits div{margin-bottom:4px}
+  .trade{border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px}
+  .trade .t-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+  .trade .t-note{font-size:12px;color:#888;margin-top:6px}
+  .switch-row{display:flex;align-items:center;gap:10px;padding:9px 2px;font-size:13.5px}
+  .switch-row input{width:22px;height:22px}
 </style>
 </head>
 <body>
+<!-- V1.1 -->
 <div class="wrap">
 
   <h1>A股交易首页</h1>
-  <div class="caption">交易决策工作台 · CAN SLIM / 趋势突破 / 风险预算</div>
+  <div class="caption">交易决策工作台 · V1.1 · 2026-11-03</div>
   <div class="caption" id="bjTime"></div>
   <div class="caption">行情来源：腾讯财经公开行情接口</div>
 
@@ -80,6 +97,16 @@
   <h2>大盘指数</h2>
   <div class="grid2" id="indexGrid"></div>
 
+  <h2>M 门状态</h2>
+  <div class="banner attack" id="mgateBanner"></div>
+  <div class="grid3">
+    <div class="field"><label>上证派发日</label><input id="mg0" type="number" min="0" max="10" step="1" inputmode="numeric"></div>
+    <div class="field"><label>深证派发日</label><input id="mg1" type="number" min="0" max="10" step="1" inputmode="numeric"></div>
+    <div class="field"><label>创业板派发日</label><input id="mg2" type="number" min="0" max="10" step="1" inputmode="numeric"></div>
+  </div>
+  <label class="switch-row"><input type="checkbox" id="mgFollow"> 跟进日已确认</label>
+  <div class="caption">派发日 = 指数放量（量高于前日）下跌超 0.2%，近 4–5 周计数。任一指数 ≥3 即走弱，停新仓。</div>
+
   <div class="banner careful" id="modeBanner"></div>
 
   <div class="field">
@@ -90,6 +117,11 @@
       <button data-m="防守">防守</button>
     </div>
   </div>
+
+  <h2>验证池（8 只）</h2>
+  <div class="caption" id="poolSummary">A 档 0 只</div>
+  <div id="poolList"></div>
+  <div class="caption">基本面未正式核查的一律按 B 档处理，不发 A 档。本页为规则核对，不是买卖建议，不预测价格。</div>
 
   <h2>重点观察股</h2>
   <div class="caption">预置机器人、AI硬件、半导体设备及光模块观察池；可在下方增删代码。</div>
@@ -115,38 +147,46 @@
     </div>
   </details>
 
-  <h2>交易检查卡</h2>
-  <div class="grid2">
-    <div class="field"><label>行业强度</label><select id="ckIndustry"><option>强</option><option>一般</option><option>弱</option></select></div>
-    <div class="field"><label>基本面</label><select id="ckFund"><option>通过</option><option>待核验</option><option>不通过</option></select></div>
-    <div class="field"><label>是否行业领先</label><select id="ckLeader"><option>是</option><option>不确定</option><option>否</option></select></div>
-    <div class="field"><label>买点</label><select id="ckEntry"><option>突破确认</option><option>回踩确认</option><option>未确认</option></select></div>
-    <div class="field"><label>止损</label><select id="ckStop"><option>已明确</option><option>未明确</option></select></div>
-    <div class="field"><label>盈亏比</label><select id="ckRr"><option>≥2</option><option>1.5–2</option><option>&lt;1.5</option><option>未知</option></select></div>
-  </div>
-  <div class="progress"><div id="checkBar" style="width:0%"></div></div>
-  <div id="checkMsg" class="check-wait"></div>
-
-  <h2>快速仓位计算</h2>
-  <div class="field"><label>账户权益（元）</label><input id="eq" type="number" min="1000" value="100000" step="10000"></div>
+  <h2>仓位计算（V1.1）</h2>
+  <div class="field"><label>验证仓权益（元）</label><input id="veq" type="number" min="1000" value="100000" step="10000"></div>
   <div class="field"><label>单笔风险预算</label>
-    <div class="seg" id="riskSeg">
-      <button data-r="0.25">0.25%</button>
-      <button data-r="0.5" class="on">0.5%</button>
-      <button data-r="0.75">0.75%</button>
-      <button data-r="1.0">1.0%</button>
+    <div class="seg" id="v11RiskSeg">
+      <button data-r="1.0" class="on">1.0%</button>
+      <button data-r="1.25">1.25%</button>
+      <button data-r="1.5">1.5%</button>
     </div>
   </div>
-  <div class="field"><label>计划买入价</label><input id="buy" type="number" min="0.01" value="100" step="0.1"></div>
-  <div class="field"><label>止损价</label><input id="sl" type="number" min="0.01" value="95" step="0.1"></div>
-  <div class="field"><label>每手股数</label><input id="lot" type="number" min="1" value="100" step="100"></div>
-  <div class="err" id="posError" style="display:none"></div>
-  <div class="metrics" id="posMetrics" style="display:none">
-    <div class="metric"><div class="k">风险金额</div><div class="v" id="mRisk"></div></div>
-    <div class="metric"><div class="k">建议股数</div><div class="v" id="mShares"></div></div>
-    <div class="metric"><div class="k">仓位</div><div class="v" id="mPos"></div></div>
+  <div class="field"><label>计划买入价</label><input id="vbuy" type="number" min="0.01" value="100" step="0.1"></div>
+  <div class="field"><label>止损价（默认买入价下方 7.5%，可改）</label><input id="vsl" type="number" min="0.01" value="92.5" step="0.1"></div>
+  <div class="field"><label>每手股数</label><input id="vlot" type="number" min="1" value="100" step="100"></div>
+  <div class="err" id="posError2" style="display:none"></div>
+  <div class="metrics" id="posMetrics2" style="display:none">
+    <div class="metric"><div class="k">风险金额</div><div class="v" id="mRisk2"></div></div>
+    <div class="metric"><div class="k">建议股数</div><div class="v" id="mShares2"></div></div>
+    <div class="metric"><div class="k">仓位占比</div><div class="v" id="mPos2"></div></div>
   </div>
-  <div class="note">腾讯行情为公开快照接口；可能受网络、限流或上游变化影响。仅辅助决策。</div>
+  <div class="limits">
+    <div>单只 ≤ 30% 验证仓</div>
+    <div>总持仓 ≤ 70% 验证仓</div>
+    <div>同行业 / 同主题 ≤ 40%（60 日相关 &gt;0.8 按一只算）</div>
+  </div>
+
+  <h2>20 笔验证记账</h2>
+  <div class="banner careful" id="tradeSummary">已平仓 0/20</div>
+  <div class="err" id="hardStopWarn" style="display:none">触及硬暂停线：连续 5 笔止损，停新仓复盘。</div>
+  <div class="field"><label>日期</label><input id="trDate" type="date"></div>
+  <div class="field"><label>股票</label><select id="trStock"></select></div>
+  <div class="field" id="trManualWrap" style="display:none"><label>手动输入股票（名称）</label><input id="trStockManual" placeholder="例如：贵州茅台 600519"></div>
+  <div class="grid2">
+    <div class="field"><label>买入价</label><input id="trBuy" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+    <div class="field"><label>股数</label><input id="trShares" type="number" min="1" step="1" inputmode="numeric"></div>
+    <div class="field"><label>买点</label><input id="trBuyPoint" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+    <div class="field"><label>止损价</label><input id="trStop" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+  </div>
+  <div class="field"><label>卖出价（空 = 持仓中）</label><input id="trSell" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+  <div class="field"><label>备注（如下单理由 / override 标注）</label><input id="trNote" placeholder="否决后 override 交易等"></div>
+  <button class="btn btn-ghost" id="addTradeBtn">记入一笔</button>
+  <div id="tradeList" style="margin-top:10px"></div>
 
   <h2>今日执行纪律</h2>
   <ul class="discipline">
@@ -155,9 +195,12 @@
     <li>突破需量价确认；价格离买点太远不追。</li>
     <li>先确定止损，再计算仓位；亏损不摊平。</li>
     <li>行情是快照，不代表信号；最终下单前核验券商行情。</li>
+    <li><b>V1.1：基本面未正式核查的，一律按 B 档处理，不发 A 档。</b></li>
+    <li><b>V1.1：验证期内不改任何阈值、档位与规则（包括以"贝叶斯更新"之名）。</b></li>
+    <li><b>V1.1：否决后仍要交易，须在记账中单独标注 override。</b></li>
   </ul>
 
-  <div class="caption" style="margin-top:18px">V2首页 · 公开行情接口 · 行情可能延迟/不可用 · 不自动交易</div>
+  <div class="caption" style="margin-top:18px">V1.1 · 公开行情接口 · 行情可能延迟/不可用 · 不自动交易 · 不给买卖建议</div>
 </div>
 
 <script>
@@ -173,6 +216,20 @@ var DEFAULT_WATCH = [
   ["瑞芯微","603893"],["全志科技","300458"],["恒玄科技","688608"],
   ["拓普集团","601689"],["三花智控","002050"],["绿的谐波","688017"],
   ["宁德时代","300750"],["阳光电源","300274"],["比亚迪","002594"]
+];
+/* ---------- V1.1：8 只验证池 ---------- */
+var V11_POOL = [
+  ["拓普集团","601689"],["恒立液压","601100"],["浙江荣泰","603119"],["绿的谐波","688017"],
+  ["瑞芯微","603893"],["乐鑫科技","688018"],["晶晨股份","688099"],["芯原股份","688521"]
+];
+var CONDS = [
+  "收盘站上买点（价格突破已核实）",
+  "大盘门通过（未走弱或跟进日确认）",
+  "L 通过（收盘在 52 周高点 15% 以内）",
+  "基本面已核查通过",
+  "形态收紧（底部 ≥7–8 周）",
+  "放量（突破日超 50 日均量 40%–50%）",
+  "未偏晚（收盘在买点 5% 以内）"
 ];
 
 /* ---------- market_code（与 app.py 一致） ---------- */
@@ -191,11 +248,17 @@ function fmtPct(v){ return v==null ? DASH : (v>=0?"+":"")+v.toFixed(2)+"%"; }
 function fmtInt(v){ return v==null ? DASH : Math.round(v).toLocaleString("en-US"); }
 function money(v){ return v==null ? DASH : "¥"+Math.round(v).toLocaleString("en-US"); }
 function cls(v){ return v==null ? "flat" : (v>0 ? "up" : (v<0 ? "down" : "flat")); }
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function bjNow(){
   return new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date()).replace(/\//g,"-");
 }
 function bjHM(){
   return new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date());
+}
+function bjDate(){
+  var g = {};
+  new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).forEach(function(x){ g[x.type]=x.value; });
+  return g.year+"-"+g.month+"-"+g.day;
 }
 
 /* ---------- 行情获取：动态 script 标签（JSONP 方式，绕过 CORS） ---------- */
@@ -259,6 +322,127 @@ function renderIndexes(){
   $("indexGrid").innerHTML = html;
 }
 
+/* ---------- V1.1：M 门 ---------- */
+var LS_MGATE = "v11_mgate";
+function loadMgate(){
+  try{
+    var v = JSON.parse(localStorage.getItem(LS_MGATE)||"null");
+    if(v && Array.isArray(v.dist) && v.dist.length===3) return v;
+  }catch(e){}
+  return {dist:[0,0,0], follow:false};
+}
+function saveMgate(v){ try{ localStorage.setItem(LS_MGATE, JSON.stringify(v)); }catch(e){} }
+function renderMgate(){
+  var v = loadMgate(), b = $("mgateBanner");
+  var weak = v.dist.some(function(d){ return (+d)>=3; });
+  if(weak){
+    b.className = "banner defend";
+    b.textContent = "大盘走弱：近 4–5 周派发日 ≥3，停新仓。";
+  }else if(v.follow){
+    b.className = "banner careful";
+    b.textContent = "跟进日已确认：可少量买入（仓位减半，止损仍 7%–8%）。";
+  }else{
+    b.className = "banner attack";
+    b.textContent = "大盘门正常：可按规则执行。";
+  }
+}
+function mgateInput(){
+  var v = {dist:[0,0,0], follow:$("mgFollow").checked};
+  for(var i=0;i<3;i++){
+    var n = parseInt($("mg"+i).value, 10);
+    v.dist[i] = isNaN(n) ? 0 : Math.max(0, Math.min(10, n));
+  }
+  saveMgate(v); renderMgate();
+}
+function initMgate(){
+  var v = loadMgate();
+  for(var i=0;i<3;i++){ $("mg"+i).value = v.dist[i]; }
+  $("mgFollow").checked = !!v.follow;
+  ["mg0","mg1","mg2"].forEach(function(id){ $(id).addEventListener("input", mgateInput); });
+  $("mgFollow").addEventListener("change", mgateInput);
+  renderMgate();
+}
+
+/* ---------- V1.1：验证池 A 档检查 ---------- */
+var LS_PCHECK = "v11_pool_checks";
+function loadPChecks(){
+  try{
+    var v = JSON.parse(localStorage.getItem(LS_PCHECK)||"{}");
+    if(v && typeof v==="object") return v;
+  }catch(e){}
+  return {};
+}
+function savePChecks(v){ try{ localStorage.setItem(LS_PCHECK, JSON.stringify(v)); }catch(e){} }
+function checkOf(code){
+  var all = loadPChecks();
+  var c = all[code] || {buy:"", on:[false,false,false,false,false,false,false]};
+  if(!Array.isArray(c.on) || c.on.length!==7) c.on = [false,false,false,false,false,false,false];
+  return c;
+}
+function tierOf(c){
+  if(!c.on[0]) return "c";
+  for(var i=0;i<7;i++){ if(!c.on[i]) return "b"; }
+  return "a";
+}
+var TIER_TXT = {a:"A 档", b:"B 档", c:"C 档·无信号"};
+function buildPool(){
+  var box = $("poolList"), html = "";
+  V11_POOL.forEach(function(it, i){
+    html += '<div class="card">'
+      + '<div class="pool-head"><div><span class="pool-name">'+it[0]+'</span> <span class="pool-code">'+it[1]+'</span></div>'
+      + '<span class="badge c" id="badge'+i+'">C 档·无信号</span></div>'
+      + '<div class="pool-quote" id="pq'+i+'">现价 — · 涨跌幅 —</div>'
+      + '<details><summary>A 档 7 条件检查</summary>'
+      + '<div class="field" style="margin-top:10px"><label>买点（元，形态上沿）</label><input id="bp'+i+'" inputmode="decimal" placeholder="例如 62.50"></div>'
+      + '<div id="conds'+i+'">';
+    CONDS.forEach(function(t, j){
+      html += '<label class="chk"><input type="checkbox" id="ck'+i+'_'+j+'"><span>'+(j+1)+'、'+t+'</span></label>';
+    });
+    html += '</div></details></div>';
+  });
+  box.innerHTML = html;
+  var all = loadPChecks();
+  V11_POOL.forEach(function(it, i){
+    var code = it[1], c = checkOf(code);
+    if(c.buy) $("bp"+i).value = c.buy;
+    CONDS.forEach(function(t, j){ $("ck"+i+"_"+j).checked = !!c.on[j]; });
+    $("bp"+i).addEventListener("input", function(){ poolCheckInput(i); });
+    CONDS.forEach(function(t, j){
+      $("ck"+i+"_"+j).addEventListener("change", function(){ poolCheckInput(i); });
+    });
+  });
+  updatePoolBadges();
+}
+function poolCheckInput(i){
+  var code = V11_POOL[i][1];
+  var all = loadPChecks();
+  var on = [];
+  for(var j=0;j<7;j++){ on.push($("ck"+i+"_"+j).checked); }
+  all[code] = {buy: $("bp"+i).value.trim(), on: on};
+  savePChecks(all);
+  updatePoolBadges();
+}
+function updatePoolBadges(){
+  var all = loadPChecks(), nA = 0;
+  V11_POOL.forEach(function(it, i){
+    var t = tierOf(checkOf(it[1]));
+    if(t==="a") nA++;
+    var b = $("badge"+i);
+    b.className = "badge "+t;
+    b.textContent = TIER_TXT[t];
+  });
+  $("poolSummary").textContent = "A 档 "+nA+" 只";
+}
+function renderPoolQuotes(){
+  V11_POOL.forEach(function(it, i){
+    var q = getQ(it[1]);
+    $("pq"+i).innerHTML = "现价 <b class='"+cls(q.pct)+"'>"+fmt2(q.price)+"</b>"
+      + " · 涨跌幅 <span class='"+cls(q.pct)+"'>"+fmtPct(q.pct)+"</span>"
+      + " · 今高 "+fmt2(q.high)+" 今低 "+fmt2(q.low)
+      + " · 成交额 "+fmtInt(q.amount_wan)+"万";
+  });
+}
+
 /* ---------- 渲染：观察股表 ---------- */
 function renderWatch(){
   var html = "";
@@ -284,7 +468,7 @@ function renderCustom(){
   var list = loadCustom();
   var box = $("customList"), html = "";
   list.forEach(function(it, i){
-    html += '<div class="custom-row"><span>'+it[0]+' <span style="color:#999">'+it[1]+'</span></span>'
+    html += '<div class="custom-row"><span>'+esc(it[0])+' <span style="color:#999">'+esc(it[1])+'</span></span>'
       + '<button class="del" data-i="'+i+'">删除</button></div>';
   });
   box.innerHTML = html || '<div class="caption">暂无自选</div>';
@@ -301,7 +485,7 @@ function renderCustomQuotes(){
   var list = loadCustom(), html = "";
   list.forEach(function(it){
     var q = getQ(it[1]);
-    html += "<tr><td>"+it[0]+"</td><td>"+it[1]+"</td>"
+    html += "<tr><td>"+esc(it[0])+"</td><td>"+esc(it[1])+"</td>"
       + '<td class="'+cls(q.pct)+'">'+fmt2(q.price)+"</td>"
       + '<td class="'+cls(q.pct)+'">'+fmtPct(q.pct)+"</td>"
       + "<td>"+fmtInt(q.amount_wan)+"</td></tr>";
@@ -326,7 +510,7 @@ var MODES = {
 function getMode(){ var m = null; try{ m = localStorage.getItem(LS_MODE); }catch(e){} return MODES[m] ? m : "谨慎"; }
 function setMode(m){
   try{ localStorage.setItem(LS_MODE, m); }catch(e){}
-  renderMode(); updateCheck();
+  renderMode();
 }
 function renderMode(){
   var m = getMode(), b = $("modeBanner");
@@ -341,60 +525,182 @@ $("modeRow").querySelectorAll("button").forEach(function(x){
   x.onclick = function(){ setMode(x.getAttribute("data-m")); };
 });
 
-/* ---------- 交易检查卡 ---------- */
-function updateCheck(){
-  var market = getMode();
-  var industry = $("ckIndustry").value, fund = $("ckFund").value, leader = $("ckLeader").value;
-  var entry = $("ckEntry").value, stop = $("ckStop").value, rr = $("ckRr").value;
-  var check = [
-    market !== "防守",
-    industry === "强",
-    fund === "通过",
-    leader === "是",
-    entry === "突破确认" || entry === "回踩确认",
-    stop === "已明确",
-    rr === "≥2"
-  ];
-  var n = check.filter(Boolean).length;
-  $("checkBar").style.width = (n/7*100)+"%";
-  var msg = $("checkMsg");
-  if(n===7){ msg.className="check-ok"; msg.textContent="7/7通过：可进入交易计划（不等于必须买入）"; }
-  else{ msg.className="check-wait"; msg.textContent=n+"/7通过：未全部满足，原则上等待"; }
+/* ---------- V1.1：仓位计算 ---------- */
+var LS_POS = "v11_pos";
+var v11Risk = 1.0, slDirty = false;
+function loadPos(){
+  try{
+    var v = JSON.parse(localStorage.getItem(LS_POS)||"null");
+    if(v && typeof v==="object") return v;
+  }catch(e){}
+  return null;
 }
-["ckIndustry","ckFund","ckLeader","ckEntry","ckStop","ckRr"].forEach(function(id){
-  $(id).onchange = updateCheck;
-});
-
-/* ---------- 快速仓位计算（算法与 app.py 一致） ---------- */
-var riskPct = 0.5;
-$("riskSeg").querySelectorAll("button").forEach(function(x){
-  x.onclick = function(){
-    $("riskSeg").querySelectorAll("button").forEach(function(y){ y.className=""; });
-    x.className = "on"; riskPct = parseFloat(x.getAttribute("data-r")); calcPos();
-  };
-});
-function calcPos(){
-  var equity = parseFloat($("eq").value), buy = parseFloat($("buy").value);
-  var sl = parseFloat($("sl").value), lot = parseFloat($("lot").value);
-  var errBox = $("posError"), met = $("posMetrics");
+function savePos(){
+  try{
+    localStorage.setItem(LS_POS, JSON.stringify({
+      veq:$("veq").value, risk:v11Risk, buy:$("vbuy").value, sl:$("vsl").value, lot:$("vlot").value
+    }));
+  }catch(e){}
+}
+function calcPosV11(){
+  var equity = parseFloat($("veq").value), buy = parseFloat($("vbuy").value);
+  var sl = parseFloat($("vsl").value), lot = parseFloat($("vlot").value);
+  var errBox = $("posError2"), met = $("posMetrics2");
   if(!(equity>0) || !(buy>0) || !(sl>=0) || !(lot>0)){
     errBox.style.display=""; errBox.textContent="请填写有效的数字。"; met.style.display="none"; return;
   }
-  if(sl >= buy){  /* 与 app.py 一致：sl<buy 才计算，否则报错 */
+  if(sl >= buy){
     errBox.style.display=""; errBox.textContent="做多止损价应低于买入价"; met.style.display="none"; return;
   }
   errBox.style.display="none";
-  var cashrisk = equity * riskPct / 100;
+  var cashrisk = equity * v11Risk / 100;
   var shares = Math.floor(Math.floor(cashrisk/(buy-sl)) / lot) * lot;
-  /* Python: int(cashrisk/(buy-sl)//lot*lot) —— 正数下等价于 floor(floor(cashrisk/(buy-sl))/lot)*lot */
   if(shares < 0) shares = 0;
   var amount = shares * buy;
-  $("mRisk").textContent = money(cashrisk);
-  $("mShares").textContent = shares.toLocaleString("en-US");
-  $("mPos").textContent = (amount/equity*100).toFixed(1)+"%";
+  $("mRisk2").textContent = money(cashrisk);
+  $("mShares2").textContent = shares.toLocaleString("en-US");
+  $("mPos2").textContent = (amount/equity*100).toFixed(1)+"%";
   met.style.display = "";
 }
-["eq","buy","sl","lot"].forEach(function(id){ $(id).oninput = calcPos; });
+function initPosV11(){
+  var v = loadPos();
+  if(v){
+    if(v.veq) $("veq").value = v.veq;
+    if(v.buy) $("vbuy").value = v.buy;
+    if(v.lot) $("vlot").value = v.lot;
+    if(v.risk){ v11Risk = parseFloat(v.risk)||1.0; }
+    if(v.sl){ $("vsl").value = v.sl; slDirty = true; }
+  }
+  $("v11RiskSeg").querySelectorAll("button").forEach(function(x){
+    var r = parseFloat(x.getAttribute("data-r"));
+    x.className = (r===v11Risk) ? "on" : "";
+    x.onclick = function(){
+      $("v11RiskSeg").querySelectorAll("button").forEach(function(y){ y.className=""; });
+      x.className = "on"; v11Risk = r; savePos(); calcPosV11();
+    };
+  });
+  $("vbuy").addEventListener("input", function(){
+    var buy = parseFloat($("vbuy").value);
+    if(!slDirty && buy>0){ $("vsl").value = (buy*0.925).toFixed(2); }
+    savePos(); calcPosV11();
+  });
+  $("vsl").addEventListener("input", function(){ slDirty = true; savePos(); calcPosV11(); });
+  ["veq","vlot"].forEach(function(id){ $(id).addEventListener("input", function(){ savePos(); calcPosV11(); }); });
+  calcPosV11();
+}
+
+/* ---------- V1.1：20 笔验证记账 ---------- */
+var LS_TRADES = "v11_trades";
+function loadTrades(){
+  try{ var v = JSON.parse(localStorage.getItem(LS_TRADES)||"[]"); return Array.isArray(v)?v:[]; }
+  catch(e){ return []; }
+}
+function saveTrades(t){ try{ localStorage.setItem(LS_TRADES, JSON.stringify(t)); }catch(e){} }
+function tradeR(t){
+  var buy = parseFloat(t.buy), stop = parseFloat(t.stop), sh = parseFloat(t.shares);
+  if(!(buy>0) || !(stop>=0) || !(sh>0) || buy<=stop) return null;
+  if(t.sell==null || t.sell==="") return null;
+  var s = parseFloat(t.sell);
+  if(isNaN(s)) return null;
+  return (s-buy)/(buy-stop);
+}
+function tradePct(t){
+  if(t.sell==null || t.sell==="") return null;
+  var buy = parseFloat(t.buy), s = parseFloat(t.sell);
+  if(!(buy>0) || isNaN(s)) return null;
+  return (s-buy)/buy*100;
+}
+function consecStops(trades){
+  var n = 0;
+  for(var i=trades.length-1;i>=0;i--){
+    var t = trades[i];
+    if(t.sell==null || t.sell==="") continue;
+    var r = tradeR(t);
+    if(r!=null && r<=-1) n++; else break;
+  }
+  return n;
+}
+function initTradeForm(){
+  var sel = $("trStock"), html = "";
+  V11_POOL.forEach(function(it){ html += '<option value="'+it[1]+'">'+it[0]+' '+it[1]+'</option>'; });
+  html += '<option value="manual">手动输入…</option>';
+  sel.innerHTML = html;
+  sel.addEventListener("change", function(){
+    $("trManualWrap").style.display = (sel.value==="manual") ? "" : "none";
+  });
+  $("trDate").value = bjDate();
+  $("addTradeBtn").onclick = addTrade;
+}
+function addTrade(){
+  var stockSel = $("trStock").value;
+  var stock = (stockSel==="manual") ? $("trStockManual").value.trim() : (function(){
+    for(var i=0;i<V11_POOL.length;i++){ if(V11_POOL[i][1]===stockSel) return V11_POOL[i][0]+" "+V11_POOL[i][1]; }
+    return stockSel;
+  })();
+  var t = {
+    id: Date.now(),
+    date: $("trDate").value || bjDate(),
+    stock: stock,
+    buy: $("trBuy").value.trim(),
+    shares: $("trShares").value.trim(),
+    buyPoint: $("trBuyPoint").value.trim(),
+    stop: $("trStop").value.trim(),
+    sell: $("trSell").value.trim(),
+    note: $("trNote").value.trim()
+  };
+  if(!t.stock || !(parseFloat(t.buy)>0) || !(parseFloat(t.shares)>0) || !(parseFloat(t.stop)>=0)){
+    alert("请填写股票、买入价、股数、止损价。");
+    return;
+  }
+  if(parseFloat(t.stop) >= parseFloat(t.buy)){ alert("做多止损价应低于买入价。"); return; }
+  var list = loadTrades(); list.push(t); saveTrades(list);
+  $("trBuy").value = ""; $("trShares").value = ""; $("trBuyPoint").value = "";
+  $("trStop").value = ""; $("trSell").value = ""; $("trNote").value = "";
+  $("trStockManual").value = "";
+  renderTrades();
+}
+function renderTrades(){
+  var list = loadTrades(), box = $("tradeList"), html = "";
+  list.forEach(function(t){
+    var r = tradeR(t), p = tradePct(t);
+    var holding = (t.sell==null || t.sell==="");
+    var statHtml = holding
+      ? '<span class="badge b">持仓中</span>'
+      : '<span class="'+(p>0?"up":(p<0?"down":"flat"))+'">盈亏 '+fmtPct(p)+'</span>'
+        + ' · <span class="'+(r>0?"up":(r<0?"down":"flat"))+'">'+(r>=0?"+":"")+r.toFixed(2)+'R</span>';
+    html += '<div class="trade"><div class="t-head"><div><b>'+esc(t.stock)+'</b> <span class="pool-code">'+esc(t.date)+'</span></div>'
+      + '<button class="del" data-id="'+t.id+'">删除</button></div>'
+      + '<div>买入 '+esc(t.buy)+' × '+esc(t.shares)+'股'
+      + (t.buyPoint ? ' · 买点 '+esc(t.buyPoint) : '')
+      + ' · 止损 '+esc(t.stop)
+      + (holding ? ' · <b>持仓中</b>' : ' · 卖出 '+esc(t.sell))
+      + '</div><div style="margin-top:4px">'+statHtml+'</div>'
+      + (t.note ? '<div class="t-note">备注：'+esc(t.note)+'</div>' : '')
+      + '</div>';
+  });
+  box.innerHTML = html || '<div class="caption">暂无记录。交易前发候选、成交后记实际价。</div>';
+  box.querySelectorAll(".del").forEach(function(b){
+    b.onclick = function(){
+      var id = +b.getAttribute("data-id");
+      saveTrades(loadTrades().filter(function(t){ return t.id!==id; }));
+      renderTrades();
+    };
+  });
+  /* 汇总 */
+  var closed = list.filter(function(t){ return !(t.sell==null||t.sell===""); });
+  var wins = closed.filter(function(t){ var p=tradePct(t); return p!=null && p>0; }).length;
+  var totR = 0, hasR = false;
+  closed.forEach(function(t){ var r=tradeR(t); if(r!=null){ totR+=r; hasR=true; } });
+  var cs = consecStops(list);
+  var sum = "已平仓 "+closed.length+"/20"
+    + " · 胜率 " + (closed.length ? Math.round(wins/closed.length*100)+"%" : "—")
+    + " · 累计 " + (hasR ? (totR>=0?"+":"")+totR.toFixed(2)+"R" : "—")
+    + " · 连续止损 "+cs+"/5";
+  var sb = $("tradeSummary");
+  sb.textContent = sum;
+  sb.className = "banner " + (cs>=5 ? "defend" : "careful");
+  $("hardStopWarn").style.display = cs>=5 ? "" : "none";
+}
 
 /* ---------- 刷新 ---------- */
 function refreshQuotes(){
@@ -402,6 +708,7 @@ function refreshQuotes(){
   btn.disabled = true; btn.textContent = "加载中…"; errBox.style.display = "none";
   var custom = loadCustom();
   var codes = INDEXES.map(function(x){return x[1];})
+    .concat(V11_POOL.map(function(x){return x[1];}))
     .concat(DEFAULT_WATCH.map(function(x){return x[1];}))
     .concat(custom.map(function(x){return x[1];}));
   fetchQuotes(codes, function(err, out){
@@ -413,15 +720,19 @@ function refreshQuotes(){
     }
     quotes = out;
     $("quoteTime").textContent = "行情更新时间：" + bjHM() + "（手动刷新）";
-    renderIndexes(); renderWatch(); renderCustomQuotes();
+    renderIndexes(); renderPoolQuotes(); renderWatch(); renderCustomQuotes();
   });
 }
 $("refreshBtn").onclick = refreshQuotes;
 
 /* ---------- 初始化 ---------- */
 $("bjTime").textContent = "北京时间 " + bjNow();
-renderMode(); renderCustom(); updateCheck(); calcPos();
-renderIndexes(); renderWatch(); renderCustomQuotes();  /* 先渲染空表（显示 —），再拉行情 */
+initMgate();
+renderMode(); renderCustom();
+buildPool();
+initPosV11();
+initTradeForm(); renderTrades();
+renderIndexes(); renderPoolQuotes(); renderWatch(); renderCustomQuotes();  /* 先渲染空表（显示 —），再拉行情 */
 refreshQuotes();
 })();
 </script>

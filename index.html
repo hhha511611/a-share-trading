@@ -89,6 +89,9 @@ canvas.v5chart{width:100%;height:150px;border:1px solid #eee;border-radius:10px;
 textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px;padding:8px 10px;font-size:15px}
 .v5grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .v5warn{background:#fff8e8;border:1px solid #f0dcae;color:#8a6d1a;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
+.v5kv .ok{color:#1e7a1e}
+.v5kv .no{color:#b02a2a}
+.v5kv .na{color:#999}
 
 </style>
 </head>
@@ -125,6 +128,8 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
     <div class="field"><label>创业板派发日</label><input id="mg2" type="number" min="0" max="10" step="1" inputmode="numeric"></div>
   </div>
   <label class="switch-row"><input type="checkbox" id="mgFollow"> 跟进日已确认</label>
+  <button class="btn btn-ghost" id="mgAutoBtn" style="margin-top:8px">自动计算派发日（上证 / 深证 / 创业板近 25 日）</button>
+  <div class="caption">自动按"放量（量高于前日）下跌超 0.2%"计数，结果仍可手动修改；跟进日需人工确认。</div>
   <div class="caption">派发日 = 指数放量（量高于前日）下跌超 0.2%，近 4–5 周计数。任一指数 ≥3 即走弱，停新仓。</div>
 
   <div class="banner careful" id="modeBanner"></div>
@@ -339,15 +344,7 @@ var V11_POOL = [
   ["拓普集团","601689"],["恒立液压","601100"],["浙江荣泰","603119"],["绿的谐波","688017"],
   ["瑞芯微","603893"],["乐鑫科技","688018"],["晶晨股份","688099"],["芯原股份","688521"]
 ];
-var CONDS = [
-  "收盘站上买点（价格突破已核实）",
-  "大盘门通过（未走弱或跟进日确认）",
-  "L 通过（收盘在 52 周高点 15% 以内）",
-  "基本面已核查通过",
-  "形态收紧（底部 ≥7–8 周）",
-  "放量（突破日超 50 日均量 40%–50%）",
-  "未偏晚（收盘在买点 5% 以内）"
-];
+/* CONDS 已替换为 6 自动 + 1 人工核对（见下方验证池 A 档检查） */
 
 /* ---------- market_code（与 app.py 一致） ---------- */
 function marketCode(code){
@@ -480,7 +477,7 @@ function initMgate(){
   renderMgate();
 }
 
-/* ---------- V1.1：验证池 A 档检查 ---------- */
+/* ---------- V1.1：验证池 A 档检查（6 自动 + 1 人工） ---------- */
 var LS_PCHECK = "v11_pool_checks";
 function loadPChecks(){
   try{
@@ -492,16 +489,87 @@ function loadPChecks(){
 function savePChecks(v){ try{ localStorage.setItem(LS_PCHECK, JSON.stringify(v)); }catch(e){} }
 function checkOf(code){
   var all = loadPChecks();
-  var c = all[code] || {buy:"", on:[false,false,false,false,false,false,false]};
-  if(!Array.isArray(c.on) || c.on.length!==7) c.on = [false,false,false,false,false,false,false];
-  return c;
+  var c = all[code] || {buy:"", shape:false};
+  return {buy: c.buy||"", shape: !!c.shape};
 }
-function tierOf(c){
-  if(!c.on[0]) return "c";
-  for(var i=0;i<7;i++){ if(!c.on[i]) return "b"; }
-  return "a";
+/* 基本面正式核查结论（与每日扫描 cron 同源引用） */
+var FUND_DATE = "2026-11-04";
+var FUND_VERDICT = {"601689":0,"601100":1,"603119":0,"688017":1,"603893":1,"688018":1,"688099":1,"688521":0};
+
+/* ---------- 新浪 K 线（JSONP，前复权口径） ---------- */
+var klines = {};
+function sinaSym(code){
+  var c = String(code).charAt(0);
+  if(c==="6"||c==="5"||c==="9") return "sh"+code;
+  if(c==="4"||c==="8") return "bj"+code;
+  return "sz"+code;
+}
+function sinaKlineP(symbol, datalen){
+  return new Promise(function(resolve,reject){
+    var name="v11k"+Date.now()+""+Math.floor(Math.random()*1e6);
+    var done=false;
+    var timer=setTimeout(function(){cleanup();reject(new Error("timeout"));},25000);
+    function cleanup(){done=true;clearTimeout(timer);var s=document.getElementById(name);if(s)s.remove();try{delete window[name];}catch(e){window[name]=undefined;}}
+    window[name]=function(d){if(done)return;cleanup();resolve(d||[]);};
+    var s=document.createElement("script");
+    s.id=name;s.async=true;
+    s.onerror=function(){if(done)return;cleanup();reject(new Error("neterr"));};
+    s.src="https://quotes.sina.cn/cn/api/jsonp.php/var="+name+"/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350);
+    document.head.appendChild(s);
+  });
+}
+function kmean(a){ var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return a.length ? s/a.length : NaN; }
+
+/* ---------- 6 项自动核对（顺序对应条件 1,2,3,4,6,7） ---------- */
+function autoChecks(code, buy){
+  function na(label, why){ return {ok:null, label:label, text:why||"数据未就绪"}; }
+  var rows = klines[code];
+  if(!rows || rows.length < 60){
+    return [na("1、收盘站上买点"),na("2、大盘门"),na("3、L 位置"),na("4、基本面"),na("6、放量"),na("7、未偏晚")];
+  }
+  var n = rows.length, out = [];
+  var close = rows.map(function(r){return parseFloat(r.close);});
+  var high = rows.map(function(r){return parseFloat(r.high);});
+  var vol = rows.map(function(r){return parseFloat(r.volume);});
+  var lastC = close[n-1];
+  /* 1 收盘站上买点 */
+  if(!(buy>0)) out.push({ok:null,label:"1、收盘站上买点",text:"未填买点"});
+  else out.push({ok:lastC>buy, label:"1、收盘站上买点", text:"收盘 "+lastC.toFixed(2)+(lastC>buy?" ＞ ":" ≤ ")+buy.toFixed(2)});
+  /* 2 大盘门（读 M 门面板状态，自动计算按钮可填充派发日） */
+  var mg = loadMgate();
+  var weak = mg.dist.some(function(d){ return (+d)>=3; });
+  out.push({ok:(!weak||!!mg.follow), label:"2、大盘门", text: weak ? (!!mg.follow?"走弱，但跟进日已确认":"走弱，停新仓") : "正常"});
+  /* 3 L：收盘距 52 周高点 */
+  var h52 = Math.max.apply(null, high.slice(Math.max(0,n-250)));
+  var d52 = (h52-lastC)/h52;
+  out.push({ok:d52<=0.15, label:"3、L 位置", text:"距52周高点 "+(d52*100).toFixed(1)+"%"});
+  /* 4 基本面：引用正式核查结论 */
+  var fv = FUND_VERDICT[code];
+  out.push({ok:fv===1, label:"4、基本面", text: fv===1 ? ("已核查通过（"+FUND_DATE+"）") : ("未通过（"+FUND_DATE+"）")});
+  /* 6 放量：近 60 日首个突破日的量比 */
+  if(!(buy>0)) out.push({ok:null,label:"6、放量",text:"未填买点"});
+  else{
+    var bi=-1;
+    for(var i=n-1; i>=Math.max(1,n-60); i--){ if(close[i]>buy && close[i-1]<=buy){ bi=i; break; } }
+    if(bi<0) out.push({ok:null,label:"6、放量",text:"近60日无突破日"});
+    else{
+      var base = vol.slice(Math.max(0,bi-50), bi);
+      var vr = vol[bi]/kmean(base);
+      out.push({ok:vr>=1.4, label:"6、放量", text:"突破日"+rows[bi].day+"量比"+vr.toFixed(2)+"x"});
+    }
+  }
+  /* 7 未偏晚 */
+  if(!(buy>0)) out.push({ok:null,label:"7、未偏晚",text:"未填买点"});
+  else{ var over=(lastC-buy)/buy; out.push({ok:over<=0.05, label:"7、未偏晚", text:"高出买点 "+(over*100).toFixed(2)+"%"}); }
+  return out;
 }
 var TIER_TXT = {a:"A 档", b:"B 档", c:"C 档·无信号"};
+function tierOf2(auto, shape, buy){
+  if(!(buy>0) || auto[0].ok!==true) return "c";
+  for(var i=0;i<auto.length;i++){ if(auto[i].ok!==true) return "b"; }
+  if(!shape) return "b";
+  return "a";
+}
 function buildPool(){
   var box = $("poolList"), html = "";
   V11_POOL.forEach(function(it, i){
@@ -509,47 +577,85 @@ function buildPool(){
       + '<div class="pool-head"><div><span class="pool-name">'+it[0]+'</span> <span class="pool-code">'+it[1]+'</span></div>'
       + '<span class="badge c" id="badge'+i+'">C 档·无信号</span></div>'
       + '<div class="pool-quote" id="pq'+i+'">现价 — · 涨跌幅 —</div>'
-      + '<details><summary>A 档 7 条件检查</summary>'
-      + '<div class="field" style="margin-top:10px"><label>买点（元，形态上沿）</label><input id="bp'+i+'" inputmode="decimal" placeholder="例如 62.50"></div>'
-      + '<div id="conds'+i+'">';
-    CONDS.forEach(function(t, j){
-      html += '<label class="chk"><input type="checkbox" id="ck'+i+'_'+j+'"><span>'+(j+1)+'、'+t+'</span></label>';
-    });
-    html += '</div></details></div>';
+      + '<details><summary>A 档 7 条件（6 自动 + 1 人工）</summary>'
+      + '<div class="field" style="margin-top:10px"><label>买点（元，形态上沿，人工标定）</label><input id="bp'+i+'" inputmode="decimal" placeholder="例如 62.50"></div>'
+      + '<div id="autoRows'+i+'"></div>'
+      + '<label class="chk"><input type="checkbox" id="shape'+i+'"><span>5、形态收紧（底部 ≥7–8 周）— 人工确认</span></label>'
+      + '<div class="caption">买点与形态需人工确认；其余 6 项按 K 线自动计算（单源·新浪前复权口径，仅供参考，正式信号以收盘后扫描为准）。基本面引用 '+FUND_DATE+' 正式核查结论。若期间有除权除息，买点请按前复权因子手动调整。</div>'
+      + '</details></div>';
   });
   box.innerHTML = html;
-  var all = loadPChecks();
   V11_POOL.forEach(function(it, i){
-    var code = it[1], c = checkOf(code);
+    var c = checkOf(it[1]);
     if(c.buy) $("bp"+i).value = c.buy;
-    CONDS.forEach(function(t, j){ $("ck"+i+"_"+j).checked = !!c.on[j]; });
+    $("shape"+i).checked = c.shape;
     $("bp"+i).addEventListener("input", function(){ poolCheckInput(i); });
-    CONDS.forEach(function(t, j){
-      $("ck"+i+"_"+j).addEventListener("change", function(){ poolCheckInput(i); });
-    });
+    $("shape"+i).addEventListener("change", function(){ poolCheckInput(i); });
   });
   updatePoolBadges();
 }
 function poolCheckInput(i){
   var code = V11_POOL[i][1];
   var all = loadPChecks();
-  var on = [];
-  for(var j=0;j<7;j++){ on.push($("ck"+i+"_"+j).checked); }
-  all[code] = {buy: $("bp"+i).value.trim(), on: on};
+  all[code] = {buy: $("bp"+i).value.trim(), shape: $("shape"+i).checked};
   savePChecks(all);
   updatePoolBadges();
 }
 function updatePoolBadges(){
-  var all = loadPChecks(), nA = 0;
+  var nA = 0;
   V11_POOL.forEach(function(it, i){
-    var t = tierOf(checkOf(it[1]));
+    var code = it[1], c = checkOf(code);
+    var buy = parseFloat(c.buy);
+    var auto = autoChecks(code, buy);
+    var t = tierOf2(auto, c.shape, buy);
     if(t==="a") nA++;
     var b = $("badge"+i);
     b.className = "badge "+t;
     b.textContent = TIER_TXT[t];
+    var rowsBox = $("autoRows"+i);
+    if(rowsBox){
+      rowsBox.innerHTML = auto.map(function(a){
+        var cls = a.ok===true ? "ok" : (a.ok===false ? "no" : "na");
+        var mark = a.ok===true ? "✓" : (a.ok===false ? "✗" : "—");
+        return '<div class="v5kv"><span class="k">'+a.label+'</span><span class="v '+cls+'">'+mark+" "+a.text+'</span></div>';
+      }).join("");
+    }
   });
   $("poolSummary").textContent = "A 档 "+nA+" 只";
 }
+/* ---------- M 门：自动计算派发日 ---------- */
+function countDistDays(rows){
+  var n = rows.length, c = 0;
+  for(var i=Math.max(1,n-25); i<n; i++){
+    var pv=parseFloat(rows[i-1].close), cv=parseFloat(rows[i].close);
+    var pvol=parseFloat(rows[i-1].volume), cvol=parseFloat(rows[i].volume);
+    if(cvol>pvol && cv/pv-1 < -0.002) c++;
+  }
+  return c;
+}
+function autoMgate(){
+  var btn = $("mgAutoBtn");
+  btn.disabled = true; btn.textContent = "计算中…";
+  Promise.all([sinaKlineP("sh000001",60),sinaKlineP("sz399001",60),sinaKlineP("sz399006",60)]).then(function(rs){
+    var v = loadMgate();
+    v.dist = [countDistDays(rs[0]), countDistDays(rs[1]), countDistDays(rs[2])];
+    saveMgate(v);
+    for(var i=0;i<3;i++){ $("mg"+i).value = v.dist[i]; }
+    renderMgate(); updatePoolBadges();
+  }).catch(function(){
+    try{ alert("指数 K 线获取失败，请检查网络后重试"); }catch(e){}
+  }).finally(function(){ btn.disabled=false; btn.textContent="自动计算派发日（上证 / 深证 / 创业板近 25 日）"; });
+}
+if($("mgAutoBtn")) $("mgAutoBtn").onclick = autoMgate;
+/* ---------- 刷新时同步拉取 8 只 K 线 ---------- */
+function refreshKlines(cb){
+  var ps = V11_POOL.map(function(it){
+    return sinaKlineP(sinaSym(it[1]), 350).then(function(r){ klines[it[1]] = r; })
+      .catch(function(){ klines[it[1]] = null; });
+  });
+  Promise.all(ps).then(function(){ if(cb) cb(); });
+}
+
 function renderPoolQuotes(){
   V11_POOL.forEach(function(it, i){
     var q = getQ(it[1]);
@@ -838,6 +944,7 @@ function refreshQuotes(){
     quotes = out;
     $("quoteTime").textContent = "行情更新时间：" + bjHM() + "（手动刷新）";
     renderIndexes(); renderPoolQuotes(); renderWatch(); renderCustomQuotes();
+    refreshKlines(function(){ updatePoolBadges(); });
   });
 }
 $("refreshBtn").onclick = refreshQuotes;

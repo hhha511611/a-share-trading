@@ -75,6 +75,21 @@
   .trade .t-note{font-size:12px;color:#888;margin-top:6px}
   .switch-row{display:flex;align-items:center;gap:10px;padding:9px 2px;font-size:13.5px}
   .switch-row input{width:22px;height:22px}
+/* ---------- V5 智能分析 ---------- */
+.v5tag{display:inline-block;font-size:11px;background:#eef2ff;color:#3b5bdb;border:1px solid #c9d6ff;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:2px}
+#tabBar{margin:12px 0 4px}
+#tabBar button{font-weight:600}
+.v5h3{font-size:15px;margin:16px 0 8px}
+.v5kv{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #f0f0f0}
+.v5kv .k{color:#666}
+.v5kv .v{font-weight:600}
+.progress{height:8px;background:#eef0f3;border-radius:6px;overflow:hidden;margin:10px 0}
+.progress>div{height:100%;width:0;background:#1677ff;border-radius:6px;transition:width .2s}
+canvas.v5chart{width:100%;height:150px;border:1px solid #eee;border-radius:10px;margin-top:8px}
+textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px;padding:8px 10px;font-size:15px}
+.v5grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v5warn{background:#fff8e8;border:1px solid #f0dcae;color:#8a6d1a;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
+
 </style>
 </head>
 <body>
@@ -82,9 +97,14 @@
 <div class="wrap">
 
   <h1>A股交易首页</h1>
-  <div class="caption">交易决策工作台 · V1.1 · 2026-11-03</div>
+  <div class="caption">交易决策工作台 · V1.1 ＋ V5 智能分析</div>
   <div class="caption" id="bjTime"></div>
   <div class="caption">行情来源：腾讯财经公开行情接口</div>
+  <div class="seg" id="tabBar">
+    <button data-tab="v11" class="on">V1.1 系统</button>
+    <button data-tab="v5">V5 智能分析</button>
+  </div>
+  <div id="tabV11">
 
   <div class="err" id="quoteError"></div>
 
@@ -202,6 +222,102 @@
 
   <div class="caption" style="margin-top:18px">V1.1 · 公开行情接口 · 行情可能延迟/不可用 · 不自动交易 · 不给买卖建议</div>
 </div>
+  <div id="tabV5" style="display:none">
+<h2>V5 智能分析<span class="v5tag">研究参考</span></h2>
+<div class="v5warn">这是 ChatGPT V5 通用分析原型的手机版，仅作研究参考。<b>它不是 V1.1 系统</b>：技术评分、"进入候选"等结论文字不是买卖信号；V1.1 的 7 条件人工核对、M 门、A 档基本面门槛不变。财务字段没有浏览器可用的数据源，需按巨潮公告手动填写，缺失不计分。</div>
+
+<div class="seg" id="v5ModeSeg">
+  <button data-v5m="single" class="on">单只股票</button>
+  <button data-v5m="sector">板块筛选</button>
+  <button data-v5m="compare">多股比较</button>
+</div>
+
+<!-- 单只股票 -->
+<div id="v5mSingle">
+  <div class="field" style="margin-top:10px"><label>股票代码（6 位）</label><input id="v5Code" inputmode="numeric" maxlength="6" value="603893"></div>
+  <button class="btn" id="v5AnalyzeBtn">开始智能分析</button>
+  <div class="err" id="v5Err" style="display:none"></div>
+  <div id="v5SingleOut" style="display:none">
+    <div class="v5h3" id="v5Title"></div>
+    <div class="caption" id="v5Cap"></div>
+    <div class="metrics">
+      <div class="metric"><div class="k">最新价</div><div class="v" id="v5Price">—</div></div>
+      <div class="metric"><div class="k">涨跌幅</div><div class="v" id="v5Pct">—</div></div>
+      <div class="metric"><div class="k">市场环境</div><div class="v" id="v5Mkt">—</div></div>
+      <div class="metric"><div class="k">技术评分</div><div class="v" id="v5Score">—</div></div>
+    </div>
+    <div class="v5h3">1｜财务增长（手动填写，以巨潮公告为准）</div>
+    <div class="v5grid2">
+      <div class="field"><label>营收同比 %</label><input id="v5fRev" type="number" step="0.01" inputmode="decimal" placeholder="如 25.5"></div>
+      <div class="field"><label>净利润同比 %</label><input id="v5fProf" type="number" step="0.01" inputmode="decimal" placeholder="如 30.2"></div>
+      <div class="field"><label>ROE %</label><input id="v5fRoe" type="number" step="0.01" inputmode="decimal"></div>
+      <div class="field"><label>EPS（元）</label><input id="v5fEps" type="number" step="0.001" inputmode="decimal"></div>
+      <div class="field"><label>经营现金流（万元）</label><input id="v5fOcf" type="number" step="1" inputmode="decimal"></div>
+    </div>
+    <div class="caption">财务可用性 <span id="v5FinAvail">0</span>/5；缺失不计分、不当零。N（新产品/催化）、I（机构持仓变化）需结合公告人工核验。</div>
+    <div class="v5h3">2｜趋势与突破</div>
+    <div class="metrics">
+      <div class="metric"><div class="k">MA20</div><div class="v" id="v5ma20">—</div></div>
+      <div class="metric"><div class="k">MA50</div><div class="v" id="v5ma50">—</div></div>
+      <div class="metric"><div class="k">MA200</div><div class="v" id="v5ma200">—</div></div>
+      <div class="metric"><div class="k">20 日量比</div><div class="v" id="v5volr">—</div></div>
+    </div>
+    <div id="v5TechKv" style="margin-top:8px"></div>
+    <canvas class="v5chart" id="v5Chart"></canvas>
+    <div class="v5h3">3｜交易计划与风险（参考）</div>
+    <div class="field"><label>账户资金（元）</label><input id="v5Cap2" type="number" min="1000" value="100000" step="10000"></div>
+    <div class="field"><label>单笔风险预算</label>
+      <div class="seg" id="v5RiskSeg">
+        <button data-r="0.25">0.25%</button><button data-r="0.5" class="on">0.5%</button><button data-r="0.75">0.75%</button><button data-r="1.0">1.0%</button><button data-r="1.5">1.5%</button>
+      </div>
+    </div>
+    <div class="field"><label>目标风险收益比</label>
+      <div class="seg" id="v5RrSeg">
+        <button data-rr="1.5">1.5</button><button data-rr="2.0" class="on">2.0</button><button data-rr="2.5">2.5</button><button data-rr="3.0">3.0</button>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="k">参考止损</div><div class="v" id="v5Stop">—</div></div>
+      <div class="metric"><div class="k" id="v5TgtK">2.0R 目标</div><div class="v" id="v5Tgt">—</div></div>
+      <div class="metric"><div class="k">风险预算</div><div class="v" id="v5RiskCash">—</div></div>
+      <div class="metric"><div class="k">风险仓位股数</div><div class="v" id="v5Shares">—</div></div>
+    </div>
+    <div class="caption">参考价位是规则计算结果，不是买入指令。止损取 20 日低点与现价×0.92 孰低；若止损结构不合理，应放弃交易而非扩大风险。</div>
+    <div class="v5h3">4｜系统结论（规则化，非预测）</div>
+    <div class="banner careful" id="v5Verdict"></div>
+  </div>
+</div>
+
+<!-- 板块筛选 -->
+<div id="v5mSector" style="display:none">
+  <div class="field" style="margin-top:10px"><label>选择行业（东方财富行业板块）</label><select id="v5Industry"><option>加载中…</option></select></div>
+  <div class="field"><label>扫描数量（按成交额优先，10–60）</label><input id="v5TopN" type="number" value="30" min="10" max="60" inputmode="numeric"></div>
+  <button class="btn" id="v5ScanBtn">扫描行业强势股</button>
+  <div class="progress" id="v5ProgWrap" style="display:none"><div id="v5Prog"></div></div>
+  <div class="err" id="v5SectorErr" style="display:none"></div>
+  <div class="table-wrap" style="margin-top:8px"><table>
+    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>20日突破</th><th>近高位</th><th>20日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
+    <tbody id="v5SectorBody"><tr><td colspan="9" style="text-align:center;color:#999">尚未扫描</td></tr></tbody>
+  </table></div>
+  <button class="btn btn-ghost" id="v5CsvBtn" style="display:none;margin-top:8px">下载扫描结果 CSV</button>
+  <div class="caption">按成交额抽取前 N 只，非全行业全量排名；技术评分为透明启发式，非收益预测；财务/产业链需对候选逐只做单股分析。</div>
+</div>
+
+<!-- 多股比较 -->
+<div id="v5mCompare" style="display:none">
+  <div class="field" style="margin-top:10px"><label>股票代码（逗号 / 换行分隔）</label><textarea class="v5ta" id="v5Codes">603893,688256,300308</textarea></div>
+  <button class="btn" id="v5CmpBtn">比较股票</button>
+  <div class="err" id="v5CmpErr" style="display:none"></div>
+  <div class="table-wrap" style="margin-top:8px"><table>
+    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>20日突破</th><th>20日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
+    <tbody id="v5CmpBody"><tr><td colspan="8" style="text-align:center;color:#999">尚未比较</td></tr></tbody>
+  </table></div>
+  <button class="btn btn-ghost" id="v5CmpCsvBtn" style="display:none;margin-top:8px">下载比较结果 CSV</button>
+</div>
+
+<div class="caption" style="margin-top:18px">V5 · 数据源：腾讯 / 新浪 / 东方财富公开接口 · K 线为新浪前复权口径 · 仅研究参考，不构成投资建议，不自动下单</div>
+
+  </div>
 
 <script>
 (function(){
@@ -736,6 +852,371 @@ initTradeForm(); renderTrades();
 renderIndexes(); renderPoolQuotes(); renderWatch(); renderCustomQuotes();  /* 先渲染空表（显示 —），再拉行情 */
 refreshQuotes();
 })();
+</script>
+<script>
+/* ================= V5 智能分析（静态移植版） ================= */
+(function(){
+"use strict";
+function $(id){return document.getElementById(id);}
+var DASH="—";
+
+/* ---------- 顶部页签 ---------- */
+var tabBtns=document.querySelectorAll("#tabBar button");
+tabBtns.forEach(function(b){
+  b.onclick=function(){
+    tabBtns.forEach(function(x){x.classList.remove("on");});
+    b.classList.add("on");
+    var v5=b.getAttribute("data-tab")==="v5";
+    $("tabV11").style.display=v5?"none":"";
+    $("tabV5").style.display=v5?"":"none";
+    window.scrollTo(0,0);
+  };
+});
+
+/* ---------- V5 模式切换 ---------- */
+var modeBtns=document.querySelectorAll("#v5ModeSeg button");
+var v5modes={single:"v5mSingle",sector:"v5mSector",compare:"v5mCompare"};
+modeBtns.forEach(function(b){
+  b.onclick=function(){
+    modeBtns.forEach(function(x){x.classList.remove("on");});
+    b.classList.add("on");
+    Object.keys(v5modes).forEach(function(k){$(v5modes[k]).style.display="none";});
+    $(v5modes[b.getAttribute("data-v5m")]).style.display="";
+    if(b.getAttribute("data-v5m")==="sector") loadIndustries();
+  };
+});
+
+/* ---------- 通用 ---------- */
+/* 新浪 K 线专用：var 写在路径中 */
+function sinaKline(symbol,datalen){
+  return new Promise(function(resolve,reject){
+    var name="v5k"+Date.now()+""+Math.floor(Math.random()*1e6);
+    var done=false;
+    var timer=setTimeout(function(){cleanup();reject(new Error("K线请求超时"));},25000);
+    function cleanup(){done=true;clearTimeout(timer);var s=document.getElementById(name);if(s)s.remove();try{delete window[name];}catch(e){window[name]=undefined;}}
+    window[name]=function(d){if(done)return;cleanup();resolve(d||[]);};
+    var s=document.createElement("script");
+    s.id=name;s.async=true;
+    s.onerror=function(){if(done)return;cleanup();reject(new Error("K线网络请求失败"));};
+    s.src="https://quotes.sina.cn/cn/api/jsonp.php/var="+name+"/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350);
+    document.head.appendChild(s);
+  });
+}
+function qqQuote(codes){
+  return new Promise(function(resolve,reject){
+    var name="v5q"+Date.now()+""+Math.floor(Math.random()*1e6);
+    var done=false;
+    var timer=setTimeout(function(){cleanup();reject(new Error("行情请求超时"));},20000);
+    function cleanup(){done=true;clearTimeout(timer);var s=document.getElementById(name);if(s)s.remove();}
+    window[name]=function(){};
+    var s=document.createElement("script");
+    s.id=name;s.async=true;s.charset="gbk";
+    s.onerror=function(){if(done)return;cleanup();reject(new Error("行情网络请求失败"));};
+    s.onload=function(){if(done)return;cleanup();
+      var out={};
+      codes.forEach(function(c){
+        var key="v_"+c.mkt+c.code;
+        var raw=window[key];
+        if(typeof raw==="string"){
+          var f=raw.split("~");
+          out[c.code]={name:f[1]||"",price:parseFloat(f[3]),pct:parseFloat(f[32])};
+        }
+      });
+      resolve(out);
+    };
+    s.src="https://qt.gtimg.cn/q="+codes.map(function(c){return c.mkt+c.code;}).join(",");
+    document.head.appendChild(s);
+  });
+}
+function mktOf(code){
+  var c=code.charAt(0);
+  if(c==="6"||c==="5"||c==="9")return "sh";
+  if(c==="4"||c==="8")return "bj";
+  return "sz";
+}
+function sinaSym(code){return mktOf(code)+code;}
+function fmtNum(v,d){if(v===null||v===undefined||isNaN(v))return DASH;return Number(v).toLocaleString("zh-CN",{minimumFractionDigits:d||2,maximumFractionDigits:d||2});}
+function fmtPct(v){if(v===null||v===undefined||isNaN(v))return DASH;return (v*100).toFixed(2)+"%";}
+function mean(a){if(!a.length)return NaN;var s=0;for(var i=0;i<a.length;i++)s+=a[i];return s/a.length;}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+
+/* ---------- 技术指标（对齐 V5 calc_tech） ---------- */
+function calcTech(rows){
+  if(!rows||rows.length<60)return null;
+  var close=rows.map(function(r){return parseFloat(r.close);});
+  var high=rows.map(function(r){return parseFloat(r.high);});
+  var low=rows.map(function(r){return parseFloat(r.low);});
+  var vol=rows.map(function(r){return parseFloat(r.volume);});
+  var n=close.length;
+  function ma(k){if(n<k)return NaN;return mean(close.slice(n-k));}
+  var ma20=ma(20),ma50=ma(50),ma200=ma(200);
+  var high20=n>21?Math.max.apply(null,high.slice(n-21,n-1)):NaN;
+  var high55=n>56?Math.max.apply(null,high.slice(n-56,n-1)):NaN;
+  var vol20=n>21?mean(vol.slice(n-21,n-1)):NaN;
+  var price=close[n-1];
+  var volratio=(vol20&&vol20>0)?vol[n-1]/vol20:NaN;
+  var ret20=n>21?price/close[n-21]-1:NaN;
+  var ret60=n>61?price/close[n-61]-1:NaN;
+  var ret120=n>121?price/close[n-121]-1:NaN;
+  var ma200ago=n>240?mean(close.slice(n-240,n-220)):NaN;
+  var stage2=n>220&&!isNaN(ma200)&&!isNaN(ma200ago)&&price>ma50&&ma50>ma200&&ma200>ma200ago;
+  var breakout20=!isNaN(high20)&&price>high20;
+  var h120max=n>120?Math.max.apply(null,high.slice(n-120)):Math.max.apply(null,high);
+  var nearhigh=price>=h120max*0.85;
+  var low20=n>20?Math.min.apply(null,low.slice(n-20)):NaN;
+  return {price:price,ma20:ma20,ma50:ma50,ma200:ma200,high20:high20,high55:high55,
+    volratio:volratio,ret20:ret20,ret60:ret60,ret120:ret120,stage2:stage2,
+    breakout20:breakout20,nearhigh:nearhigh,low20:low20,lastDate:rows[n-1].day,close:close};
+}
+function techScore(t){
+  if(!t)return 0;
+  var s=0;
+  if(t.stage2)s+=25;
+  if(t.breakout20)s+=20;
+  if(t.nearhigh)s+=15;
+  if(t.ret60>0)s+=15;
+  if(t.ret120>0)s+=10;
+  if(t.volratio>=1.3)s+=15;else if(t.volratio>=1)s+=5;
+  return s;
+}
+function marketCtx(){
+  return sinaKline("sh000001",260).then(function(rows){
+    if(!rows||rows.length<210)return {mode:"未知"};
+    var close=rows.map(function(r){return parseFloat(r.close);});
+    var n=close.length,last=close[n-1];
+    var m50=mean(close.slice(n-50)),m200=mean(close.slice(n-200));
+    return {mode:(last>m50&&m50>m200)?"进攻":(last>m200?"谨慎":"防守"),last:last};
+  }).catch(function(){return {mode:"未知"};});
+}
+
+/* ---------- 单只股票 ---------- */
+var v5Risk=0.5,v5Rr=2.0,v5LastT=null,v5LastPrice=NaN;
+document.querySelectorAll("#v5RiskSeg button").forEach(function(b){
+  b.onclick=function(){document.querySelectorAll("#v5RiskSeg button").forEach(function(x){x.classList.remove("on");});b.classList.add("on");v5Risk=parseFloat(b.getAttribute("data-r"));renderV5Plan();};
+});
+document.querySelectorAll("#v5RrSeg button").forEach(function(b){
+  b.onclick=function(){document.querySelectorAll("#v5RrSeg button").forEach(function(x){x.classList.remove("on");});b.classList.add("on");v5Rr=parseFloat(b.getAttribute("data-rr"));$("v5TgtK").textContent=v5Rr.toFixed(1)+"R 目标";renderV5Plan();};
+});
+["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(id){
+  $(id).addEventListener("input",function(){
+    var n=0;["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(k){if($(k).value!=="")n++;});
+    $("v5FinAvail").textContent=n;
+  });
+});
+$("v5AnalyzeBtn").onclick=function(){
+  var code=($("v5Code").value||"").trim();
+  var err=$("v5Err");err.style.display="none";
+  if(!/^\d{6}$/.test(code)){err.style.display="";err.textContent="请输入 6 位股票代码。";return;}
+  var btn=$("v5AnalyzeBtn");btn.disabled=true;btn.textContent="分析中…";
+  $("v5SingleOut").style.display="none";
+  var mkt=mktOf(code);
+  Promise.all([
+    qqQuote([{mkt:mkt,code:code}]).catch(function(){return {};}),
+    sinaKline(sinaSym(code),350),
+    marketCtx()
+  ]).then(function(rs){
+    var q=rs[0][code]||{},rows=rs[1],m=rs[2];
+    var t=calcTech(rows);
+    if(!t)throw new Error("K 线数据不足（需 60 根以上），该代码可能有误或接口异常。");
+    v5LastT=t;v5LastPrice=!isNaN(q.price)?q.price:t.price;
+    var name=q.name||code;
+    $("v5Title").textContent=name+"（"+code+"）";
+    $("v5Cap").textContent="K 线更新至 "+t.lastDate+"（新浪前复权口径）；行情快照为腾讯接口；财务请按巨潮公告手动填写。";
+    $("v5Price").textContent=fmtNum(v5LastPrice);
+    $("v5Pct").textContent=(q.pct===undefined||isNaN(q.pct))?DASH:(q.pct>=0?"+":"")+q.pct.toFixed(2)+"%";
+    $("v5Mkt").textContent=m.mode;
+    var sc=techScore(t);
+    $("v5Score").textContent=sc+"/100";
+    $("v5ma20").textContent=fmtNum(t.ma20);
+    $("v5ma50").textContent=fmtNum(t.ma50);
+    $("v5ma200").textContent=fmtNum(t.ma200);
+    $("v5volr").textContent=isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x";
+    var kv=[["Stage 2 趋势",t.stage2?"是":"否"],["20 日突破",t.breakout20?"是":"否"],
+      ["接近 120 日高点（≥85%）",t.nearhigh?"是":"否"],["20 日收益",fmtPct(t.ret20)],
+      ["60 日收益",fmtPct(t.ret60)],["120 日收益",fmtPct(t.ret120)]];
+    $("v5TechKv").innerHTML=kv.map(function(p){return '<div class="v5kv"><span class="k">'+p[0]+'</span><span class="v">'+p[1]+'</span></div>';}).join("");
+    drawChart(t);
+    renderV5Plan();
+    var verdict,cls;
+    if(m.mode==="防守"){verdict="市场防守：优先观望，降低新开仓风险。";cls="banner defend";}
+    else if(sc>=70&&t.stage2&&t.breakout20){verdict="趋势强且突破：进入候选，等待确认成交 / 回踩及风险收益合格。";cls="banner attack";}
+    else if(sc>=45){verdict="趋势观察：等待更明确的突破、量能或回踩确认。";cls="banner careful";}
+    else{verdict="暂不优先：趋势 / 量能条件不足，继续观察。";cls="banner careful";}
+    var vb=$("v5Verdict");vb.textContent=verdict;vb.className=cls;
+    var n=0;["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(k){if($(k).value!=="")n++;});
+    vb.textContent+="（技术 "+sc+"/100；财务字段可用性 "+n+"/5）";
+    $("v5SingleOut").style.display="";
+  }).catch(function(e){
+    err.style.display="";err.textContent="分析失败："+e.message;
+  }).finally(function(){btn.disabled=false;btn.textContent="开始智能分析";});
+};
+function renderV5Plan(){
+  if(!v5LastT)return;
+  var t=v5LastT,price=v5LastPrice;
+  var capital=parseFloat($("v5Cap2").value)||0;
+  var stop=NaN;
+  if(!isNaN(t.low20)&&!isNaN(price))stop=Math.min(t.low20,price*0.92);
+  var riskPer=(!isNaN(stop)&&!isNaN(price))?price-stop:NaN;
+  var riskCash=capital*v5Risk/100;
+  var shares=(!isNaN(riskPer)&&riskPer>0)?Math.floor(riskCash/riskPer/100)*100:0;
+  var target=(!isNaN(riskPer))?price+v5Rr*riskPer:NaN;
+  $("v5Stop").textContent=fmtNum(stop);
+  $("v5Tgt").textContent=fmtNum(target);
+  $("v5RiskCash").textContent=fmtNum(riskCash,0)+" 元";
+  $("v5Shares").textContent=isNaN(shares)?DASH:shares.toLocaleString("zh-CN")+" 股";
+}
+$("v5Cap2").addEventListener("input",renderV5Plan);
+function drawChart(t){
+  var cv=$("v5Chart"),ctx=cv.getContext("2d");
+  var W=cv.clientWidth||cv.parentElement.clientWidth-2,H=150;
+  cv.width=W*2;cv.height=H*2;ctx.scale(2,2);
+  var data=t.close.slice(-120),n=data.length;
+  var mn=Math.min.apply(null,data),mx=Math.max.apply(null,data);
+  if(mx===mn){mx=mn+1;}
+  function X(i){return 4+i*(W-8)/(n-1);}
+  function Y(v){return H-8-(v-mn)/(mx-mn)*(H-24);}
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle="#e8e8e8";ctx.beginPath();ctx.moveTo(4,Y(data[n-1]));ctx.lineTo(W-4,Y(data[n-1]));ctx.stroke();
+  ctx.strokeStyle="#1677ff";ctx.lineWidth=1.5;ctx.beginPath();
+  for(var i=0;i<n;i++){if(i===0)ctx.moveTo(X(i),Y(data[i]));else ctx.lineTo(X(i),Y(data[i]));}
+  ctx.stroke();
+  ctx.fillStyle="#999";ctx.font="10px sans-serif";
+  ctx.fillText(fmtNum(mx),4,10);ctx.fillText(fmtNum(mn),4,H-4);
+  ctx.fillText("近120日收盘",W-70,10);
+}
+
+/* ---------- 板块筛选 ---------- */
+var industriesLoaded=false,sectorRows=[];
+function loadIndustries(){
+  if(industriesLoaded)return;
+  var sel=$("v5Industry");
+  fetch("https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f12,f14")
+    .then(function(r){return r.json();}).then(function(j){
+      var diff=(j&&j.data&&j.data.diff)||[];
+      sel.innerHTML="";
+      diff.forEach(function(d){
+        var o=document.createElement("option");o.value=d.f12;o.textContent=d.f14;sel.appendChild(o);
+      });
+      industriesLoaded=true;
+    }).catch(function(){
+      sel.innerHTML="<option>行业列表加载失败，请切换网络后重进此页</option>";
+    });
+}
+function emFetchAll(fs,fields){
+  var all=[],pn=1;
+  function one(){
+    return fetch("https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs="+encodeURIComponent(fs)+"&fields="+fields)
+      .then(function(r){return r.json();}).then(function(j){
+        var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return all;
+        all=all.concat(d.diff);
+        if(d.total>pn*100){pn++;return one();}
+        return all;
+      });
+  }
+  return one();
+}
+$("v5ScanBtn").onclick=function(){
+  var err=$("v5SectorErr");err.style.display="none";
+  if(!industriesLoaded){err.style.display="";err.textContent="行业列表尚未加载完成，请稍候再试。";return;}
+  var bk=$("v5Industry").value;
+  var indName=$("v5Industry").selectedOptions[0].textContent;
+  var topn=Math.max(10,Math.min(60,parseInt($("v5TopN").value)||30));
+  var btn=$("v5ScanBtn");btn.disabled=true;btn.textContent="扫描中…";
+  $("v5ProgWrap").style.display="";$("v5Prog").style.width="0";
+  $("v5CsvBtn").style.display="none";sectorRows=[];
+  emFetchAll("b:"+bk,"f12,f14,f2,f6").then(function(cons){
+    var rows=cons.filter(function(d){return d.f12&&/^\d{6}$/.test(String(d.f12));})
+      .map(function(d){return {code:String(d.f12),name:d.f14||"",amt:parseFloat(d.f6)||0};})
+      .sort(function(a,b){return b.amt-a.amt;}).slice(0,topn);
+    var out=[],i=0;
+    function next(){
+      if(i>=rows.length){finish();return;}
+      var r=rows[i];
+      sinaKline(sinaSym(r.code),250).then(function(kl){
+        var t=calcTech(kl);
+        if(t)out.push({code:r.code,name:r.name,amt:r.amt,score:techScore(t),stage2:t.stage2?"是":"否",
+          brk:t.breakout20?"是":"否",near:t.nearhigh?"是":"否",
+          volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
+          ret60:isNaN(t.ret60)?DASH:(t.ret60*100).toFixed(2)+"%",price:t.price});
+      }).catch(function(){}).finally(function(){
+        i++;$("v5Prog").style.width=Math.round(i/rows.length*100)+"%";
+        setTimeout(next,120);
+      });
+    }
+    function finish(){
+      out.sort(function(a,b){return b.score-a.score;});
+      sectorRows=out;
+      var tb=$("v5SectorBody");
+      if(!out.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:#999">无有效数据</td></tr>';}
+      else tb.innerHTML=out.map(function(o){
+        return "<tr><td>"+o.code+"</td><td>"+o.name+"</td><td><b>"+o.score+"</b></td><td>"+o.stage2+"</td><td>"+o.brk+"</td><td>"+o.near+"</td><td>"+o.volr+"</td><td>"+o.ret60+"</td><td>"+fmtNum(o.price)+"</td></tr>";
+      }).join("");
+      $("v5CsvBtn").style.display=out.length?"":"none";
+      $("v5CsvBtn").onclick=function(){downloadCsv(indName+"_扫描.csv",sectorRows,
+        ["code","name","score","stage2","brk","near","volr","ret60","price"],
+        ["代码","名称","技术评分","Stage2","20日突破","近高位","20日量比","60日收益%","最新价"]);};
+      btn.disabled=false;btn.textContent="扫描行业强势股";
+      setTimeout(function(){$("v5ProgWrap").style.display="none";},600);
+    }
+    next();
+  }).catch(function(e){
+    err.style.display="";err.textContent="成分股获取失败："+e.message;
+    btn.disabled=false;btn.textContent="扫描行业强势股";$("v5ProgWrap").style.display="none";
+  });
+};
+
+/* ---------- 多股比较 ---------- */
+var cmpRows=[];
+$("v5CmpBtn").onclick=function(){
+  var err=$("v5CmpErr");err.style.display="none";
+  var codes=($("v5Codes").value||"").replace(/\n/g,",").split(",").map(function(x){return x.trim();}).filter(function(x){return /^\d{6}$/.test(x);});
+  if(!codes.length){err.style.display="";err.textContent="请输入至少一个 6 位代码。";return;}
+  var btn=$("v5CmpBtn");btn.disabled=true;btn.textContent="比较中…";
+  $("v5CmpCsvBtn").style.display="none";cmpRows=[];
+  var qcodes=codes.map(function(c){return {mkt:mktOf(c),code:c};});
+  qqQuote(qcodes).catch(function(){return {};}).then(function(qmap){
+    var out=[],i=0;
+    function next(){
+      if(i>=codes.length){finish();return;}
+      var c=codes[i];
+      sinaKline(sinaSym(c),350).then(function(kl){
+        var t=calcTech(kl),q=qmap[c]||{};
+        if(t)out.push({code:c,name:q.name||"",score:techScore(t),stage2:t.stage2?"是":"否",
+          brk:t.breakout20?"是":"否",volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
+          ret60:isNaN(t.ret60)?DASH:(t.ret60*100).toFixed(2)+"%",
+          price:!isNaN(q.price)?q.price:t.price});
+        else out.push({code:c,name:q.name||"",score:DASH,stage2:DASH,brk:DASH,volr:DASH,ret60:DASH,price:DASH,err:"K线不足"});
+      }).catch(function(){out.push({code:c,name:"",score:DASH,stage2:DASH,brk:DASH,volr:DASH,ret60:DASH,price:DASH,err:"请求失败"});})
+      .finally(function(){i++;setTimeout(next,120);});
+    }
+    function finish(){
+      out.sort(function(a,b){return (b.score===DASH?-1:b.score)-(a.score===DASH?-1:a.score);});
+      cmpRows=out;
+      var tb=$("v5CmpBody");
+      tb.innerHTML=out.map(function(o){
+        return "<tr><td>"+o.code+"</td><td>"+(o.name||(o.err||""))+"</td><td><b>"+o.score+"</b></td><td>"+o.stage2+"</td><td>"+o.brk+"</td><td>"+o.volr+"</td><td>"+o.ret60+"</td><td>"+(isNaN(o.price)?DASH:fmtNum(o.price))+"</td></tr>";
+      }).join("");
+      $("v5CmpCsvBtn").style.display=out.length?"":"none";
+      $("v5CmpCsvBtn").onclick=function(){downloadCsv("股票比较.csv",cmpRows,
+        ["code","name","score","stage2","brk","volr","ret60","price"],
+        ["代码","名称","技术评分","Stage2","20日突破","20日量比","60日收益%","最新价"]);};
+      btn.disabled=false;btn.textContent="比较股票";
+    }
+    next();
+  });
+};
+function downloadCsv(filename,rows,keys,headers){
+  var csv="\ufeff"+headers.join(",")+"\n"+rows.map(function(o){
+    return keys.map(function(k){var v=o[k];return '"'+String(v===undefined?"":v).replace(/"/g,'""')+'"';}).join(",");
+  }).join("\n");
+  var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=filename;
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},2000);
+}
+})();
+
 </script>
 </body>
 </html>

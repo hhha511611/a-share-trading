@@ -101,11 +101,25 @@
       <tbody id="cmpBody"></tbody>
     </table>
     <div class="caption">完整凯利长期增长最优，但回撤极大；分数越小越稳，增长越慢。这是数学性质，不是建议。</div>
-    <h2>按止损换算股数（可选）</h2>
+    <h2>止损与股数互算（可选）</h2>
+    <div class="caption">先点"计算"得出建议风险金额，再用下面互算。两种用法：填止损价 → 算对应股数；填计划股数 → 反推止损价；两个都填 → 校验实际风险是否超预算。</div>
     <div class="field"><label>计划买入价（元，可空）</label><input id="buyIn" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
     <div class="field"><label>止损价（元，可空）</label><input id="stopIn" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+    <div class="field"><label>快捷填入止损幅度（按买入价）</label>
+      <div class="seg" id="stopPctSeg">
+        <button data-sp="0.05">5%</button>
+        <button data-sp="0.07">7%</button>
+        <button data-sp="0.08">8%</button>
+        <button data-sp="0.10">10%</button>
+      </div>
+      <div class="caption">点一下按买入价自动填止损价；再点一次取消。</div>
+    </div>
+    <div class="field"><label>计划买入股数（股，可空）</label><input id="sharesIn" type="number" min="1" step="1" inputmode="numeric"></div>
     <div class="kv"><span class="k">止损距离</span><span class="v" id="oDist">—</span></div>
+    <div class="kv"><span class="k">止损幅度</span><span class="v" id="oStopPct">—</span></div>
     <div class="kv"><span class="k">对应股数（按建议风险金额）</span><span class="v" id="oShares">—</span></div>
+    <div class="kv"><span class="k">按计划股数反推止损价</span><span class="v" id="oImpliedStop">—</span></div>
+    <div id="stopWarn"></div>
   </div>
 
   <div class="card">
@@ -196,7 +210,7 @@ function calc(){
     $("cmpBody").innerHTML="";
     warn.push({t:"期望值为负（f* ≤ 0）：按凯利准则不应下注。",c:"defend"});
     if(r.estNote) warn.push({t:r.estNote,c:"careful"});
-    renderWarn(warn); lastResult=null; renderShares(); save(); return;
+    renderWarn(warn); lastResult=null; renderStop(); save(); return;
   }
   var fUse=f*frac;
   var capped=false;
@@ -221,21 +235,62 @@ function calc(){
   if(r.estNote) warn.push({t:r.estNote,c:"careful"});
   warn.push({t:"凯利对 p、b 极敏感：胜率高估 5 个百分点，结论可能完全改变。永远用保守估计。",c:"careful"});
   renderWarn(warn);
-  renderShares(); save();
+  renderStop(); save();
 }
 function renderWarn(warn){
   $("oWarn").innerHTML=warn.map(function(w){
     return '<div class="banner '+w.c+'">'+w.t+"</div>";
   }).join("");
 }
-function renderShares(){
-  var buy=num("buyIn"),stop=num("stopIn");
-  if(lastResult&&buy>0&&stop>0&&buy>stop){
-    var dist=buy-stop;
-    $("oDist").textContent="¥"+dist.toFixed(2);
-    $("oShares").textContent=Math.floor(lastResult.amt/dist).toLocaleString("zh-CN")+" 股";
-  }else{
-    $("oDist").textContent=DASH; $("oShares").textContent=DASH;
+function renderStop(){
+  var buy=num("buyIn"),stop=num("stopIn"),sh=num("sharesIn");
+  var D=$("oDist"),P=$("oStopPct"),S=$("oShares"),I=$("oImpliedStop"),W=$("stopWarn");
+  D.textContent=DASH; P.textContent=DASH; S.textContent=DASH; I.textContent=DASH; W.innerHTML="";
+  if(!lastResult){
+    W.innerHTML='<div class="banner careful">先点上面的"计算"，得出建议风险金额后再互算。</div>';
+    return;
+  }
+  if(!(buy>0)){
+    if(stop>0||sh>0) W.innerHTML='<div class="banner careful">请先填写计划买入价。</div>';
+    return;
+  }
+  var amt=lastResult.amt, warns=[];
+  function pctWarn(pc){
+    if(pc<0.03) warns.push("止损幅度 "+(pc*100).toFixed(2)+"% 过紧（<3%），容易被正常波动噪音打掉。");
+    else if(pc>0.15) warns.push("止损幅度 "+(pc*100).toFixed(2)+"% 偏宽（>15%），同样风险金额下股数会很少。");
+  }
+  var haveStop=(stop>0&&buy>stop);
+  if(stop>0&&!haveStop) warns.push("止损价须低于买入价，当前输入无效。");
+  var haveShares=(sh>0&&Math.floor(sh)===sh);
+  if(sh>0&&!haveShares) warns.push("计划股数须为正整数。");
+  if(haveStop){
+    var dist=buy-stop, pc=dist/buy;
+    D.textContent="¥"+dist.toFixed(2);
+    P.textContent=(pc*100).toFixed(2)+"%";
+    S.textContent=Math.floor(amt/dist).toLocaleString("zh-CN")+" 股";
+    pctWarn(pc);
+  }
+  if(haveShares&&!haveStop){
+    var d2=amt/sh, pc2=d2/buy;
+    if(d2<=0){ warns.push("风险金额为 0，无法反推。"); }
+    else{
+      I.textContent="¥"+(buy-d2).toFixed(2)+"（"+(pc2*100).toFixed(2)+"%）";
+      D.textContent="¥"+d2.toFixed(2);
+      P.textContent=(pc2*100).toFixed(2)+"%";
+      pctWarn(pc2);
+    }
+  }
+  if(haveStop&&haveShares){
+    var actualRisk=sh*dist, pc3=(buy-(buy-amt/sh))/buy;
+    I.textContent="¥"+(buy-amt/sh).toFixed(2)+"（"+(pc3*100).toFixed(2)+"%）";
+    if(actualRisk>amt*1.001){
+      warns.push("计划 "+sh.toLocaleString("zh-CN")+" 股 × 止损距离 ¥"+dist.toFixed(2)+" = 实际风险 "+fmtMoney(actualRisk)+"，超出凯利建议风险 "+fmtMoney(amt)+"，请减股数或收紧止损。");
+    }else{
+      W.innerHTML+='<div class="banner attack">实际风险 '+fmtMoney(actualRisk)+"，在凯利建议风险 "+fmtMoney(amt)+" 之内。</div>";
+    }
+  }
+  if(warns.length){
+    W.innerHTML+=warns.map(function(t){return '<div class="banner careful">'+t+"</div>";}).join("");
   }
 }
 
@@ -243,7 +298,7 @@ function save(){
   try{
     var d={mode:mode,frac:frac,p:$("pIn").value,b:$("bIn").value,hN:$("hN").value,hW:$("hW").value,
       hPW:$("hPW").value,hPL:$("hPL").value,eq:$("eqIn").value,cap:$("capIn").value,
-      buy:$("buyIn").value,stop:$("stopIn").value};
+      buy:$("buyIn").value,stop:$("stopIn").value,shares:$("sharesIn").value};
     localStorage.setItem(LS,JSON.stringify(d));
   }catch(e){}
 }
@@ -253,7 +308,7 @@ function load(){
     if(!d) return;
     mode=d.mode==="hist"?"hist":"direct";
     frac=parseFloat(d.frac)||0.5;
-    ["p","b","hN","hW","hPW","hPL","eq","cap","buy","stop"].forEach(function(k){
+    ["p","b","hN","hW","hPW","hPL","eq","cap","buy","stop","shares"].forEach(function(k){
       var id=k==="p"?"pIn":k==="b"?"bIn":k+"In";
       if(d[k]!==undefined&&$(id)) $(id).value=d[k];
     });
@@ -269,7 +324,21 @@ function load(){
 }
 
 $("calcBtn").onclick=calc;
-["buyIn","stopIn"].forEach(function(id){ $(id).addEventListener("input",function(){ renderShares(); save(); }); });
+["buyIn","stopIn","sharesIn"].forEach(function(id){ $(id).addEventListener("input",function(){ renderStop(); save(); }); });
+document.querySelectorAll("#stopPctSeg button").forEach(function(b){
+  b.onclick=function(){
+    var on=b.classList.contains("on");
+    document.querySelectorAll("#stopPctSeg button").forEach(function(x){x.classList.remove("on");});
+    var buy=parseFloat($("buyIn").value);
+    if(!on&&buy>0){
+      b.classList.add("on");
+      $("stopIn").value=(buy*(1-parseFloat(b.getAttribute("data-sp")))).toFixed(2);
+    }else{
+      $("stopIn").value="";
+    }
+    renderStop(); save();
+  };
+});
 ["pIn","bIn","hN","hW","hPW","hPL","eqIn","capIn"].forEach(function(id){
   $(id).addEventListener("input",save);
 });

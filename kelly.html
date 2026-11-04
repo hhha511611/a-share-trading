@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>凯利公式仓位计算器</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f5f6f8;color:#222;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:560px;margin:0 auto;padding:14px 14px 40px}
+  h1{font-size:22px;margin:6px 0 2px}
+  h2{font-size:17px;margin:20px 0 8px}
+  .caption{font-size:12.5px;color:#888;margin:4px 0}
+  .card{background:#fff;border-radius:12px;padding:14px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .banner{border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
+  .banner.careful{background:#fff8e8;border:1px solid #f0dcae;color:#8a6d1a}
+  .banner.defend{background:#fdeaea;border:1px solid #f3b8b8;color:#b02a2a}
+  .banner.attack{background:#eef7ee;border:1px solid #bfe3bf;color:#1e7a1e}
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:13px;color:#555;margin-bottom:4px}
+  .field input,.field select{width:100%;min-height:42px;border:1px solid #ddd;border-radius:9px;padding:8px 10px;font-size:15px;background:#fff}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-height:42px;border:1px solid #ddd;border-radius:9px;background:#fff;font-size:14px;cursor:pointer;white-space:nowrap}
+  .seg button.on{background:#1677ff;border-color:#1677ff;color:#fff;font-weight:600}
+  .btn{display:block;width:100%;min-height:44px;border:none;border-radius:11px;background:#1677ff;color:#fff;font-weight:600;cursor:pointer;font-size:15px}
+  .btn-ghost{background:#f0f2f5;color:#333}
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .metric{background:#f7f8fa;border-radius:9px;padding:10px}
+  .metric .k{font-size:12px;color:#888}
+  .metric .v{font-size:19px;font-weight:700;margin-top:2px}
+  .metric .v small{font-size:12px;font-weight:400;color:#888}
+  .kv{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid #f0f0f0}
+  .kv .k{color:#666}
+  .kv .v{font-weight:600}
+  .ok{color:#1e7a1e}.no{color:#b02a2a}.na{color:#999}
+  .err{display:none;background:#fdeaea;border:1px solid #f3b8b8;color:#b02a2a;border-radius:9px;padding:9px 11px;font-size:13px;margin:8px 0}
+  table.cmp{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  table.cmp th,table.cmp td{border:1px solid #eee;padding:7px 6px;text-align:center}
+  table.cmp th{background:#f7f8fa;color:#555;font-weight:600}
+  a{color:#1677ff;text-decoration:none}
+  .formula{background:#f7f8fa;border-radius:9px;padding:10px 12px;font-size:13px;color:#444;margin-top:10px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>凯利公式仓位计算器</h1>
+  <div class="caption">独立研究工具 · 与 V1.1 验证系统无关（验证按风险预算执行，不用凯利）· <a href="index.html">← 回交易首页</a></div>
+
+  <div class="banner careful">凯利公式回答的是"优势固定时，每次该下多大的注"。它对输入的<b>胜率 p</b> 和<b>盈亏比 b</b> 极其敏感——估计错一点，结论差很多。实务中几乎不用完整凯利（波动太大），默认给你半凯利。先理解，再使用。</div>
+
+  <div class="card">
+    <h2 style="margin-top:0">参数输入</h2>
+    <div class="field"><label>输入方式</label>
+      <div class="seg" id="modeSeg">
+        <button data-m="direct" class="on">直接输入胜率/盈亏比</button>
+        <button data-m="hist">用历史交易记录估算</button>
+      </div>
+    </div>
+    <div id="directBox">
+      <div class="field"><label>胜率 p（%，0–100）</label><input id="pIn" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例如 45"></div>
+      <div class="field"><label>盈亏比 b（平均盈利 ÷ 平均亏损）</label><input id="bIn" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如 2.0"></div>
+    </div>
+    <div id="histBox" style="display:none">
+      <div class="field"><label>总交易笔数</label><input id="hN" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 40"></div>
+      <div class="field"><label>其中盈利笔数</label><input id="hW" type="number" min="0" step="1" inputmode="numeric" placeholder="例如 18"></div>
+      <div class="field"><label>平均每笔盈利（元）</label><input id="hPW" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如 3200"></div>
+      <div class="field"><label>平均每笔亏损（元）</label><input id="hPL" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如 1600"></div>
+      <div class="caption" id="histNote">样本少于 30 笔时，估算的 p、b 很不可靠，结论仅供参考。</div>
+    </div>
+    <div class="field"><label>账户权益（元）</label><input id="eqIn" type="number" min="1000" step="1000" inputmode="numeric" value="100000"></div>
+    <div class="field"><label>凯利分数（采用比例）</label>
+      <div class="seg" id="fracSeg">
+        <button data-f="0.25">1/4 凯利</button>
+        <button data-f="0.333">1/3 凯利</button>
+        <button data-f="0.5" class="on">半凯利（推荐）</button>
+        <button data-f="1">完整凯利</button>
+      </div>
+    </div>
+    <div class="field"><label>单笔仓位上限（%，安全阀）</label><input id="capIn" type="number" min="1" max="100" step="1" inputmode="numeric" value="25"></div>
+    <div class="err" id="kErr"></div>
+    <button class="btn" id="calcBtn">计算</button>
+    <div class="caption">输入自动保存在本机浏览器，下次打开接着用。</div>
+  </div>
+
+  <div class="card" id="outCard" style="display:none">
+    <h2 style="margin-top:0">计算结果</h2>
+    <div class="metrics">
+      <div class="metric"><div class="k">胜率 p</div><div class="v" id="oP">—</div></div>
+      <div class="metric"><div class="k">盈亏比 b</div><div class="v" id="oB">—</div></div>
+      <div class="metric"><div class="k">完整凯利 f*</div><div class="v" id="oF">—</div></div>
+      <div class="metric"><div class="k">采用仓位比例</div><div class="v" id="oUse">—</div></div>
+      <div class="metric"><div class="k">建议风险金额</div><div class="v" id="oAmt">—</div></div>
+      <div class="metric"><div class="k">期望值（每元风险）</div><div class="v" id="oEv">—</div></div>
+    </div>
+    <div id="oWarn"></div>
+    <h2>分数对比</h2>
+    <table class="cmp">
+      <thead><tr><th>采用比例</th><th>仓位占比</th><th>风险金额</th></tr></thead>
+      <tbody id="cmpBody"></tbody>
+    </table>
+    <div class="caption">完整凯利长期增长最优，但回撤极大；分数越小越稳，增长越慢。这是数学性质，不是建议。</div>
+    <h2>按止损换算股数（可选）</h2>
+    <div class="field"><label>计划买入价（元，可空）</label><input id="buyIn" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+    <div class="field"><label>止损价（元，可空）</label><input id="stopIn" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
+    <div class="kv"><span class="k">止损距离</span><span class="v" id="oDist">—</span></div>
+    <div class="kv"><span class="k">对应股数（按建议风险金额）</span><span class="v" id="oShares">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">公式与假设</h2>
+    <div class="formula">
+      f* = p − (1−p) / b<br>
+      p 为胜率，b 为平均盈利 ÷ 平均亏损。f* 是"每次应投入的权益比例"。<br><br>
+      凯利成立需要三个很强的前提：① p、b 长期稳定；② 你知道真实的 p、b（而不是估计的）；③ 可重复下注很多次。现实交易里三条都不完全成立——所以用分数凯利、设上限、把结论当参考而非指令。
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:18px">公开数学公式 · 本地计算 · 不构成投资建议 · 不自动交易 · <a href="index.html">回交易首页</a></div>
+</div>
+
+<script>
+(function(){
+"use strict";
+function $(id){return document.getElementById(id);}
+var DASH="—";
+var LS="kelly_calc_v1";
+var mode="direct", frac=0.5;
+var lastResult=null;
+
+function segInit(id, attr, cb){
+  var btns=document.querySelectorAll("#"+id+" button");
+  btns.forEach(function(b){
+    b.onclick=function(){
+      btns.forEach(function(x){x.classList.remove("on");});
+      b.classList.add("on");
+      cb(b.getAttribute(attr));
+    };
+  });
+}
+segInit("modeSeg","data-m",function(v){
+  mode=v;
+  $("directBox").style.display=v==="direct"?"":"none";
+  $("histBox").style.display=v==="hist"?"":"none";
+  save();
+});
+segInit("fracSeg","data-f",function(v){ frac=parseFloat(v); save(); });
+
+function num(id){ var v=parseFloat($(id).value); return isNaN(v)?NaN:v; }
+function fmtPct(v){ return isNaN(v)?DASH:(v*100).toFixed(2)+"%"; }
+function fmtMoney(v){ return isNaN(v)?DASH:"¥"+Math.round(v).toLocaleString("zh-CN"); }
+
+function showErr(msg){
+  var e=$("kErr");
+  if(!msg){ e.style.display="none"; e.textContent=""; return; }
+  e.style.display=""; e.textContent=msg;
+}
+
+function readInputs(){
+  var p,b,estNote="";
+  if(mode==="direct"){
+    p=num("pIn")/100; b=num("bIn");
+    if(!(p>0&&p<1)){ return {err:"胜率 p 须在 0–100 之间（不含端点）。"}; }
+    if(!(b>0)){ return {err:"盈亏比 b 须大于 0。"}; }
+  }else{
+    var n=num("hN"),w=num("hW"),pw=num("hPW"),pl=num("hPL");
+    if(!(n>=1&&Math.floor(n)===n)) return {err:"总笔数须为正整数。"};
+    if(!(w>=0&&w<=n&&Math.floor(w)===w)) return {err:"盈利笔数须在 0 到总笔数之间。"};
+    if(!(pw>0&&pl>0)) return {err:"平均盈利/亏损须大于 0。"};
+    p=w/n; b=pw/pl;
+    if(n<30) estNote="样本仅 "+n+" 笔（<30），p、b 估计很不可靠，结论仅供参考。";
+    else estNote="样本 "+n+" 笔估算：p="+(p*100).toFixed(1)+"%，b="+b.toFixed(2)+"。";
+  }
+  var eq=num("eqIn");
+  if(!(eq>0)) return {err:"账户权益须大于 0。"};
+  var cap=num("capIn");
+  if(!(cap>0&&cap<=100)) return {err:"单笔上限须在 0–100% 之间。"};
+  return {p:p,b:b,eq:eq,cap:cap/100,estNote:estNote};
+}
+
+function calc(){
+  showErr(null);
+  var r=readInputs();
+  if(r.err){ showErr(r.err); $("outCard").style.display="none"; lastResult=null; return; }
+  var p=r.p,b=r.b,q=1-p;
+  var f=p-q/b;                       /* 完整凯利 */
+  var ev=p*b-q;                      /* 每单位风险的期望值 */
+  var warn=[];
+  if(f<=0){
+    $("outCard").style.display="";
+    $("oP").textContent=fmtPct(p); $("oB").textContent=isNaN(b)?DASH:b.toFixed(2);
+    $("oF").innerHTML='<span class="no">'+fmtPct(f)+"</span>";
+    $("oUse").textContent=DASH; $("oAmt").textContent=DASH;
+    $("oEv").innerHTML='<span class="no">'+ev.toFixed(3)+"</span>";
+    $("cmpBody").innerHTML="";
+    warn.push({t:"期望值为负（f* ≤ 0）：按凯利准则不应下注。",c:"defend"});
+    if(r.estNote) warn.push({t:r.estNote,c:"careful"});
+    renderWarn(warn); lastResult=null; renderShares(); save(); return;
+  }
+  var fUse=f*frac;
+  var capped=false;
+  if(fUse>r.cap){ fUse=r.cap; capped=true; }
+  var amt=fUse*r.eq;
+  lastResult={f:f,fUse:fUse,amt:amt,eq:r.eq};
+  $("outCard").style.display="";
+  $("oP").textContent=fmtPct(p);
+  $("oB").textContent=b.toFixed(2);
+  $("oF").textContent=fmtPct(f);
+  $("oUse").innerHTML=fmtPct(fUse)+(capped?' <small>（已触上限）</small>':"");
+  $("oAmt").textContent=fmtMoney(amt);
+  $("oEv").innerHTML='<span class="'+(ev>0?"ok":"no")+'">'+ev.toFixed(3)+"</span>";
+  var fr=[["完整凯利",1],["半凯利",0.5],["1/3 凯利",1/3],["1/4 凯利",0.25]];
+  $("cmpBody").innerHTML=fr.map(function(x){
+    var ff=Math.min(f*x[1],r.cap);
+    var tag=(ff>=r.cap&&f*x[1]>r.cap)?" *":"";
+    return "<tr><td>"+x[0]+"</td><td>"+fmtPct(ff)+tag+"</td><td>"+fmtMoney(ff*r.eq)+"</td></tr>";
+  }).join("");
+  if(capped) warn.push({t:"完整凯利 f*="+fmtPct(f)+"，经分数折算后仍超上限，已按 "+Math.round(r.cap*100)+"% 截断（*）。凯利在大优势下会给出极端比例，截断是必要的安全阀。",c:"careful"});
+  if(f>0.5) warn.push({t:"f* 超过 50%，即使数学上成立，实务中也几乎不可执行——请检查 p、b 是否高估。",c:"careful"});
+  if(r.estNote) warn.push({t:r.estNote,c:"careful"});
+  warn.push({t:"凯利对 p、b 极敏感：胜率高估 5 个百分点，结论可能完全改变。永远用保守估计。",c:"careful"});
+  renderWarn(warn);
+  renderShares(); save();
+}
+function renderWarn(warn){
+  $("oWarn").innerHTML=warn.map(function(w){
+    return '<div class="banner '+w.c+'">'+w.t+"</div>";
+  }).join("");
+}
+function renderShares(){
+  var buy=num("buyIn"),stop=num("stopIn");
+  if(lastResult&&buy>0&&stop>0&&buy>stop){
+    var dist=buy-stop;
+    $("oDist").textContent="¥"+dist.toFixed(2);
+    $("oShares").textContent=Math.floor(lastResult.amt/dist).toLocaleString("zh-CN")+" 股";
+  }else{
+    $("oDist").textContent=DASH; $("oShares").textContent=DASH;
+  }
+}
+
+function save(){
+  try{
+    var d={mode:mode,frac:frac,p:$("pIn").value,b:$("bIn").value,hN:$("hN").value,hW:$("hW").value,
+      hPW:$("hPW").value,hPL:$("hPL").value,eq:$("eqIn").value,cap:$("capIn").value,
+      buy:$("buyIn").value,stop:$("stopIn").value};
+    localStorage.setItem(LS,JSON.stringify(d));
+  }catch(e){}
+}
+function load(){
+  try{
+    var d=JSON.parse(localStorage.getItem(LS)||"null");
+    if(!d) return;
+    mode=d.mode==="hist"?"hist":"direct";
+    frac=parseFloat(d.frac)||0.5;
+    ["p","b","hN","hW","hPW","hPL","eq","cap","buy","stop"].forEach(function(k){
+      var id=k==="p"?"pIn":k==="b"?"bIn":k+"In";
+      if(d[k]!==undefined&&$(id)) $(id).value=d[k];
+    });
+    document.querySelectorAll("#modeSeg button").forEach(function(b){
+      b.classList.toggle("on",b.getAttribute("data-m")===mode);
+    });
+    document.querySelectorAll("#fracSeg button").forEach(function(b){
+      b.classList.toggle("on",parseFloat(b.getAttribute("data-f"))===frac);
+    });
+    $("directBox").style.display=mode==="direct"?"":"none";
+    $("histBox").style.display=mode==="hist"?"":"none";
+  }catch(e){}
+}
+
+$("calcBtn").onclick=calc;
+["buyIn","stopIn"].forEach(function(id){ $(id).addEventListener("input",function(){ renderShares(); save(); }); });
+["pIn","bIn","hN","hW","hPW","hPL","eqIn","capIn"].forEach(function(id){
+  $(id).addEventListener("input",save);
+});
+load();
+})();
+</script>
+</body>
+</html>

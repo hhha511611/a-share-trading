@@ -515,11 +515,11 @@ function sinaKlineP(symbol, datalen){
     var done=false;
     var timer=setTimeout(function(){cleanup();reject(new Error("timeout"));},25000);
     function cleanup(){done=true;clearTimeout(timer);var s=document.getElementById(name);if(s)s.remove();try{delete window[name];}catch(e){window[name]=undefined;}}
-    window[name]=function(d){if(done)return;cleanup();resolve(d||[]);};
+    window[name]=function(d){if(done)return;cleanup();resolve((d&&d.result&&d.result.data)||[]);};
     var s=document.createElement("script");
     s.id=name;s.async=true;
     s.onerror=function(){if(done)return;cleanup();reject(new Error("neterr"));};
-    s.src="https://quotes.sina.cn/cn/api/jsonp.php/var="+name+"/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350);
+    s.src="https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350)+"&callback="+name;
     document.head.appendChild(s);
   });
 }
@@ -1091,11 +1091,11 @@ function sinaKline(symbol,datalen){
     var done=false;
     var timer=setTimeout(function(){cleanup();reject(new Error("K线请求超时"));},25000);
     function cleanup(){done=true;clearTimeout(timer);var s=document.getElementById(name);if(s)s.remove();try{delete window[name];}catch(e){window[name]=undefined;}}
-    window[name]=function(d){if(done)return;cleanup();resolve(d||[]);};
+    window[name]=function(d){if(done)return;cleanup();resolve((d&&d.result&&d.result.data)||[]);};
     var s=document.createElement("script");
     s.id=name;s.async=true;
     s.onerror=function(){if(done)return;cleanup();reject(new Error("K线网络请求失败"));};
-    s.src="https://quotes.sina.cn/cn/api/jsonp.php/var="+name+"/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350);
+    s.src="https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData?symbol="+symbol+"&scale=240&ma=no&datalen="+(datalen||350)+"&callback="+name;
     document.head.appendChild(s);
   });
 }
@@ -1155,7 +1155,7 @@ function calcTech(rows){
   var ret20=n>21?price/close[n-21]-1:NaN;
   var ret60=n>61?price/close[n-61]-1:NaN;
   var ret120=n>121?price/close[n-121]-1:NaN;
-  var ma200ago=n>240?mean(close.slice(n-240,n-220)):NaN;
+  var ma200ago=n>220?mean(close.slice(n-219,n-19)):NaN;
   var stage2=n>220&&!isNaN(ma200)&&!isNaN(ma200ago)&&price>ma50&&ma50>ma200&&ma200>ma200ago;
   var breakout20=!isNaN(high20)&&price>high20;
   var h120max=n>120?Math.max.apply(null,high.slice(n-120)):Math.max.apply(null,high);

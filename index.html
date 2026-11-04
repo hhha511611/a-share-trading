@@ -501,6 +501,8 @@ var FUND_VERDICT = {"601689":0,"601100":1,"603119":0,"688017":1,"603893":1,"6880
 /* ---------- 新浪 K 线（JSONP，前复权口径） ---------- */
 var klines = {};
 var klineErr = {};
+var indexKlines = {};
+var KLINE_SRC = "", KLINE_DATE = "";
 function sinaSym(code){
   var c = String(code).charAt(0);
   if(c==="6"||c==="5"||c==="9") return "sh"+code;
@@ -596,7 +598,7 @@ function buildPool(){
       + '<div class="field" style="margin-top:10px"><label>买点（元，形态上沿，人工标定）</label><input id="bp'+i+'" inputmode="decimal" placeholder="例如 62.50"></div>'
       + '<div id="autoRows'+i+'"></div>'
       + '<label class="chk"><input type="checkbox" id="shape'+i+'"><span>5、形态收紧（底部 ≥7–8 周）— 人工确认</span></label>'
-      + '<div class="caption">买点与形态需人工确认；其余 6 项按 K 线自动计算（单源·新浪前复权口径，仅供参考，正式信号以收盘后扫描为准）。基本面引用 '+FUND_DATE+' 正式核查结论。若期间有除权除息，买点请按前复权因子手动调整。</div>'
+      + '<div class="caption">买点与形态需人工确认；其余 6 项自动计算（K 线来自本地每日更新，备用新浪前复权口径，仅供参考，正式信号以收盘后扫描为准）。基本面引用 '+FUND_DATE+' 正式核查结论。若期间有除权除息，买点请按前复权因子手动调整。</div>'
       + '</details></div>';
   });
   box.innerHTML = html;
@@ -651,7 +653,11 @@ function countDistDays(rows){
 function autoMgate(){
   var btn = $("mgAutoBtn");
   btn.disabled = true; btn.textContent = "计算中…";
-  Promise.all([sinaKlineP("sh000001",60),sinaKlineP("sz399001",60),sinaKlineP("sz399006",60)]).then(function(rs){
+  var hasLocal = indexKlines["sh000001"] && indexKlines["sz399001"] && indexKlines["sz399006"];
+  var p = hasLocal
+    ? Promise.resolve([indexKlines["sh000001"], indexKlines["sz399001"], indexKlines["sz399006"]])
+    : Promise.all([sinaKlineP("sh000001",60),sinaKlineP("sz399001",60),sinaKlineP("sz399006",60)]);
+  p.then(function(rs){
     var v = loadMgate();
     v.dist = [countDistDays(rs[0]), countDistDays(rs[1]), countDistDays(rs[2])];
     saveMgate(v);
@@ -664,17 +670,63 @@ function autoMgate(){
 if($("mgAutoBtn")) $("mgAutoBtn").onclick = autoMgate;
 if($("klineRetryBtn")) $("klineRetryBtn").onclick = function(){ refreshKlines(function(){ updatePoolBadges(); }); };
 /* ---------- 刷新时同步拉取 8 只 K 线 ---------- */
+/* 本地每日 K 线（同源 data/klines.json，由 GitHub Actions 收盘后更新）优先 */
+function loadLocalKlines(){
+  return fetch("data/klines.json",{cache:"no-store"}).then(function(r){
+    if(!r.ok) throw 0;
+    return r.json();
+  }).then(function(j){
+    if(!j || !j.stocks) throw 0;
+    var n = 0;
+    Object.keys(j.stocks).forEach(function(code){
+      var rows = j.stocks[code];
+      if(rows && rows.length >= 60){
+        klines[code] = rows.map(function(a){
+          return {day:a[0],open:a[1],high:a[2],low:a[3],close:a[4],volume:a[5]};
+        });
+        delete klineErr[code];
+        n++;
+      }
+    });
+    if(j.indexes){
+      Object.keys(j.indexes).forEach(function(s){
+        var rows = j.indexes[s];
+        if(rows && rows.length >= 30){
+          indexKlines[s] = rows.map(function(a){
+            return {day:a[0],open:a[1],high:a[2],low:a[3],close:a[4],volume:a[5]};
+          });
+        }
+      });
+    }
+    if(n > 0){ KLINE_SRC = "本地每日更新"; KLINE_DATE = j.date || ""; }
+    return n;
+  }).catch(function(){ return 0; });
+}
 function refreshKlines(cb){
   var btn = $("klineRetryBtn");
   if(btn){ btn.disabled = true; btn.textContent = "K线拉取中…"; }
-  var ps = V11_POOL.map(function(it){
-    return sinaKlineP(sinaSym(it[1]), 350).then(function(r){ klines[it[1]] = r; delete klineErr[it[1]]; })
-      .catch(function(){ klines[it[1]] = null; klineErr[it[1]] = true; });
-  });
-  Promise.all(ps).then(function(){
+  function done(){
     renderKlineStatus();
     if(btn){ btn.disabled = false; btn.textContent = "重拉 K 线数据"; }
     if(cb) cb();
+  }
+  loadLocalKlines().then(function(n){
+    var missing = V11_POOL.filter(function(it){
+      return !(klines[it[1]] && klines[it[1]].length >= 60);
+    });
+    if(!missing.length){ done(); return; }
+    /* 本地缺失才走实时接口：逐个串行，对弱网更友好 */
+    var i = 0;
+    function next(){
+      if(i >= missing.length){ done(); return; }
+      var code = missing[i][1];
+      sinaKlineP(sinaSym(code), 350).then(function(r){
+        if(r && r.length >= 60){ klines[code] = r; delete klineErr[code]; KLINE_SRC = "实时接口"; KLINE_DATE = ""; }
+        else { klines[code] = null; klineErr[code] = true; }
+      }).catch(function(){ klines[code] = null; klineErr[code] = true; })
+      .finally(function(){ i++; setTimeout(next, 400); });
+    }
+    next();
   });
 }
 function renderKlineStatus(){
@@ -690,7 +742,8 @@ function renderKlineStatus(){
     var r0 = klines[V11_POOL[0][1]];
     if(r0 && r0.length) last = "（" + r0[r0.length-1].day + "）";
   }
-  el.textContent = "K 线：已加载 " + ok + "/8" + (fail ? "，失败 " + fail + " 只" : "") + last;
+  var src = KLINE_SRC ? (" · " + KLINE_SRC + (KLINE_DATE ? " " + KLINE_DATE : "")) : "";
+  el.textContent = "K 线：已加载 " + ok + "/8" + (fail ? "，失败 " + fail + " 只" : "") + last + src;
 }
 
 function renderPoolQuotes(){

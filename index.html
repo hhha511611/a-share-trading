@@ -145,6 +145,8 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
 
   <h2>验证池（8 只）</h2>
   <div class="caption" id="poolSummary">A 档 0 只</div>
+  <div class="caption" id="klineStatus">K 线：未加载</div>
+  <button class="btn btn-ghost" id="klineRetryBtn" style="margin-top:6px">重拉 K 线数据</button>
   <div id="poolList"></div>
   <div class="caption">基本面未正式核查的一律按 B 档处理，不发 A 档。本页为规则核对，不是买卖建议，不预测价格。</div>
 
@@ -498,6 +500,7 @@ var FUND_VERDICT = {"601689":0,"601100":1,"603119":0,"688017":1,"603893":1,"6880
 
 /* ---------- 新浪 K 线（JSONP，前复权口径） ---------- */
 var klines = {};
+var klineErr = {};
 function sinaSym(code){
   var c = String(code).charAt(0);
   if(c==="6"||c==="5"||c==="9") return "sh"+code;
@@ -521,11 +524,28 @@ function sinaKlineP(symbol, datalen){
 function kmean(a){ var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return a.length ? s/a.length : NaN; }
 
 /* ---------- 6 项自动核对（顺序对应条件 1,2,3,4,6,7） ---------- */
+function mgateCheck(){
+  var mg = loadMgate();
+  var weak = mg.dist.some(function(d){ return (+d)>=3; });
+  return {ok:(!weak||!!mg.follow), label:"2、大盘门", text: weak ? (!!mg.follow?"走弱，但跟进日已确认":"走弱，停新仓") : "正常"};
+}
+function fundCheck(code){
+  var fv = FUND_VERDICT[code];
+  return {ok:fv===1, label:"4、基本面", text: fv===1 ? ("已核查通过（"+FUND_DATE+"）") : ("未通过（"+FUND_DATE+"）")};
+}
 function autoChecks(code, buy){
-  function na(label, why){ return {ok:null, label:label, text:why||"数据未就绪"}; }
+  var c2 = mgateCheck(), c4 = fundCheck(code);
   var rows = klines[code];
   if(!rows || rows.length < 60){
-    return [na("1、收盘站上买点"),na("2、大盘门"),na("3、L 位置"),na("4、基本面"),na("6、放量"),na("7、未偏晚")];
+    var why = klineErr[code] ? "K线加载失败" : "K线加载中…";
+    return [
+      {ok:null,label:"1、收盘站上买点",text:why},
+      c2,
+      {ok:null,label:"3、L 位置",text:why},
+      c4,
+      {ok:null,label:"6、放量",text:why},
+      {ok:null,label:"7、未偏晚",text:why}
+    ];
   }
   var n = rows.length, out = [];
   var close = rows.map(function(r){return parseFloat(r.close);});
@@ -535,17 +555,12 @@ function autoChecks(code, buy){
   /* 1 收盘站上买点 */
   if(!(buy>0)) out.push({ok:null,label:"1、收盘站上买点",text:"未填买点"});
   else out.push({ok:lastC>buy, label:"1、收盘站上买点", text:"收盘 "+lastC.toFixed(2)+(lastC>buy?" ＞ ":" ≤ ")+buy.toFixed(2)});
-  /* 2 大盘门（读 M 门面板状态，自动计算按钮可填充派发日） */
-  var mg = loadMgate();
-  var weak = mg.dist.some(function(d){ return (+d)>=3; });
-  out.push({ok:(!weak||!!mg.follow), label:"2、大盘门", text: weak ? (!!mg.follow?"走弱，但跟进日已确认":"走弱，停新仓") : "正常"});
+  out.push(c2);
   /* 3 L：收盘距 52 周高点 */
   var h52 = Math.max.apply(null, high.slice(Math.max(0,n-250)));
   var d52 = (h52-lastC)/h52;
   out.push({ok:d52<=0.15, label:"3、L 位置", text:"距52周高点 "+(d52*100).toFixed(1)+"%"});
-  /* 4 基本面：引用正式核查结论 */
-  var fv = FUND_VERDICT[code];
-  out.push({ok:fv===1, label:"4、基本面", text: fv===1 ? ("已核查通过（"+FUND_DATE+"）") : ("未通过（"+FUND_DATE+"）")});
+  out.push(c4);
   /* 6 放量：近 60 日首个突破日的量比 */
   if(!(buy>0)) out.push({ok:null,label:"6、放量",text:"未填买点"});
   else{
@@ -647,13 +662,35 @@ function autoMgate(){
   }).finally(function(){ btn.disabled=false; btn.textContent="自动计算派发日（上证 / 深证 / 创业板近 25 日）"; });
 }
 if($("mgAutoBtn")) $("mgAutoBtn").onclick = autoMgate;
+if($("klineRetryBtn")) $("klineRetryBtn").onclick = function(){ refreshKlines(function(){ updatePoolBadges(); }); };
 /* ---------- 刷新时同步拉取 8 只 K 线 ---------- */
 function refreshKlines(cb){
+  var btn = $("klineRetryBtn");
+  if(btn){ btn.disabled = true; btn.textContent = "K线拉取中…"; }
   var ps = V11_POOL.map(function(it){
-    return sinaKlineP(sinaSym(it[1]), 350).then(function(r){ klines[it[1]] = r; })
-      .catch(function(){ klines[it[1]] = null; });
+    return sinaKlineP(sinaSym(it[1]), 350).then(function(r){ klines[it[1]] = r; delete klineErr[it[1]]; })
+      .catch(function(){ klines[it[1]] = null; klineErr[it[1]] = true; });
   });
-  Promise.all(ps).then(function(){ if(cb) cb(); });
+  Promise.all(ps).then(function(){
+    renderKlineStatus();
+    if(btn){ btn.disabled = false; btn.textContent = "重拉 K 线数据"; }
+    if(cb) cb();
+  });
+}
+function renderKlineStatus(){
+  var el = $("klineStatus");
+  if(!el) return;
+  var ok = 0, fail = 0;
+  V11_POOL.forEach(function(it){
+    if(klines[it[1]] && klines[it[1]].length >= 60) ok++;
+    else if(klineErr[it[1]]) fail++;
+  });
+  var last = "";
+  if(ok > 0){
+    var r0 = klines[V11_POOL[0][1]];
+    if(r0 && r0.length) last = "（" + r0[r0.length-1].day + "）";
+  }
+  el.textContent = "K 线：已加载 " + ok + "/8" + (fail ? "，失败 " + fail + " 只" : "") + last;
 }
 
 function renderPoolQuotes(){

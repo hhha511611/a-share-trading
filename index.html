@@ -194,6 +194,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
     <div class="metric"><div class="k">建议股数</div><div class="v" id="mShares2"></div></div>
     <div class="metric"><div class="k">仓位占比</div><div class="v" id="mPos2"></div></div>
   </div>
+  <div id="posWarn2" style="margin-top:8px"></div>
   <div class="limits">
     <div>单只 ≤ 30% 验证仓</div>
     <div>总持仓 ≤ 70% 验证仓</div>
@@ -203,6 +204,8 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
   <h2>20 笔验证记账</h2>
   <div class="banner careful" id="tradeSummary">已平仓 0/20</div>
   <div class="err" id="hardStopWarn" style="display:none">触及硬暂停线：连续 5 笔止损，停新仓复盘。</div>
+  <div class="banner defend" id="hardPauseBanner" style="display:none;margin-top:8px">硬暂停线已触发（手动标记），停新仓复盘。</div>
+  <label class="chk"><input type="checkbox" id="hardPauseManual"><span>手动标记硬暂停（验证仓回撤 20% / 止损无法执行且单笔浮亏超 5% / 连续违反同一规则 3 次）</span></label>
   <div class="field"><label>日期</label><input id="trDate" type="date"></div>
   <div class="field"><label>股票</label><select id="trStock"></select></div>
   <div class="field" id="trManualWrap" style="display:none"><label>手动输入股票（名称）</label><input id="trStockManual" placeholder="例如：贵州茅台 600519"></div>
@@ -470,7 +473,8 @@ function mgateInput(){
     var n = parseInt($("mg"+i).value, 10);
     v.dist[i] = isNaN(n) ? 0 : Math.max(0, Math.min(10, n));
   }
-  saveMgate(v); renderMgate();
+  saveMgate(v); renderMgate(); updatePoolBadges();
+  try{ if(typeof calcPosV11==="function") calcPosV11(); }catch(e){}
 }
 function initMgate(){
   var v = loadMgate();
@@ -560,10 +564,13 @@ function autoChecks(code, buy){
   if(!(buy>0)) out.push({ok:null,label:"1、收盘站上买点",text:"未填买点"});
   else out.push({ok:lastC>buy, label:"1、收盘站上买点", text:"收盘 "+lastC.toFixed(2)+(lastC>buy?" ＞ ":" ≤ ")+buy.toFixed(2)});
   out.push(c2);
-  /* 3 L：收盘距 52 周高点 */
+  /* 3 L：收盘距 52 周高点；>30% 且 6 个月收益为负 = 落后区（§九） */
   var h52 = Math.max.apply(null, high.slice(Math.max(0,n-250)));
   var d52 = (h52-lastC)/h52;
-  out.push({ok:d52<=0.15, label:"3、L 位置", text:"距52周高点 "+(d52*100).toFixed(1)+"%"});
+  var ret6m = n>126 ? lastC/close[n-126]-1 : NaN;
+  var lag = d52>0.30 && !(ret6m>=0);
+  var zone = d52<=0.15 ? "" : (lag ? "（落后区）" : "（未确认）");
+  out.push({ok:d52<=0.15, label:"3、L 位置", text:"距52周高点 "+(d52*100).toFixed(1)+"%"+zone});
   out.push(c4);
   /* 6 放量：近 60 日首个突破日的量比 */
   if(!(buy>0)) out.push({ok:null,label:"6、放量",text:"未填买点"});
@@ -600,7 +607,7 @@ function buildPool(){
       + '<div class="field" style="margin-top:10px"><label>买点（元，形态上沿，人工标定）</label><input id="bp'+i+'" inputmode="decimal" placeholder="例如 62.50"></div>'
       + '<div id="autoRows'+i+'"></div>'
       + '<label class="chk"><input type="checkbox" id="shape'+i+'"><span>5、形态收紧（底部 ≥7–8 周）— 人工确认</span></label>'
-      + '<div class="caption">买点与形态需人工确认；其余 6 项自动计算（K 线来自本地每日更新，备用新浪前复权口径，仅供参考，正式信号以收盘后扫描为准）。基本面引用 '+FUND_DATE+' 正式核查结论。若期间有除权除息，买点请按前复权因子手动调整。</div>'
+      + '<div class="caption">买点与形态需人工确认；其余 6 项自动计算（K 线来自本地每日更新，备用新浪前复权口径，仅供参考，正式信号以收盘后扫描为准）。放量取规则 40%–50% 区间下限（量比 ≥1.4x）。基本面引用 '+FUND_DATE+' 正式核查结论。若期间有除权除息，买点请按前复权因子手动调整。</div>'
       + '</details></div>';
   });
   box.innerHTML = html;
@@ -868,13 +875,20 @@ function calcPosV11(){
     errBox.style.display=""; errBox.textContent="做多止损价应低于买入价"; met.style.display="none"; return;
   }
   errBox.style.display="none";
-  var cashrisk = equity * v11Risk / 100;
+  var halved = false;
+  try{ halved = !!loadMgate().follow; }catch(e){}
+  var cashrisk = equity * v11Risk / 100 * (halved ? 0.5 : 1);
   var shares = Math.floor(Math.floor(cashrisk/(buy-sl)) / lot) * lot;
   if(shares < 0) shares = 0;
   var amount = shares * buy;
+  var posPct = amount/equity*100;
   $("mRisk2").textContent = money(cashrisk);
   $("mShares2").textContent = shares.toLocaleString("en-US");
-  $("mPos2").textContent = (amount/equity*100).toFixed(1)+"%";
+  $("mPos2").textContent = posPct.toFixed(1)+"%";
+  var pw = [];
+  if(halved) pw.push('<div class="banner careful">M门跟进日已确认：风险预算已按规则减半（止损仍为 7%–8%，不收紧）。</div>');
+  if(posPct > 30) pw.push('<div class="banner defend">仓位占比 '+posPct.toFixed(1)+'% 超过单只 30% 上限（§九之一 §7），请减股数或放弃。</div>');
+  $("posWarn2").innerHTML = pw.join("");
   met.style.display = "";
 }
 function initPosV11(){
@@ -935,9 +949,16 @@ function consecStops(trades){
   }
   return n;
 }
+var LS_HP = "v11_hardpause";
+function renderHardPause(){
+  var on = false;
+  try{ on = localStorage.getItem(LS_HP)==="1"; }catch(e){}
+  var c = $("hardPauseManual"), b = $("hardPauseBanner");
+  if(c) c.checked = on;
+  if(b) b.style.display = on ? "" : "none";
+}
 function initTradeForm(){
-  var sel = $("trStock"), html = "";
-  V11_POOL.forEach(function(it){ html += '<option value="'+it[1]+'">'+it[0]+' '+it[1]+'</option>'; });
+  var sel = $("trStock"), html = "";  V11_POOL.forEach(function(it){ html += '<option value="'+it[1]+'">'+it[0]+' '+it[1]+'</option>'; });
   html += '<option value="manual">手动输入…</option>';
   sel.innerHTML = html;
   sel.addEventListener("change", function(){
@@ -1047,7 +1068,11 @@ initMgate();
 renderMode(); renderCustom();
 buildPool();
 initPosV11();
-initTradeForm(); renderTrades();
+initTradeForm(); renderTrades(); renderHardPause();
+if($("hardPauseManual")) $("hardPauseManual").addEventListener("change", function(){
+  try{ localStorage.setItem(LS_HP, this.checked ? "1" : "0"); }catch(e){}
+  renderHardPause();
+});
 renderIndexes(); renderPoolQuotes(); renderWatch(); renderCustomQuotes();  /* 先渲染空表（显示 —），再拉行情 */
 refreshQuotes();
 })();

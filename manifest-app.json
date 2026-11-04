@@ -1,1 +1,1 @@
-{"background_color":"#f5f6f8","description":"A股交易决策工作台（V1.1＋V5）","display":"standalone","icons":[{"sizes":"any","src":"icon-app.svg","type":"image/svg+xml"}],"name":"A股交易工作台","short_name":"交易工作台","start_url":"index.html","theme_color":"#1f2937"}
+{"background_color":"#f5f6f8","description":"A股交易决策工作台（V1.1＋V5）","display":"standalone","icons":[{"sizes":"any","src":"icon-app-red.svg","type":"image/svg+xml"}],"name":"A股交易工作台","short_name":"交易工作台","start_url":"index.html","theme_color":"#d32f2f"}

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI缠论</title>
+<link rel="manifest" href="chan-manifest.json">
+<meta name="theme-color" content="#0e1319">
+<link rel="stylesheet" href="chan.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <button class="icobtn" id="poolBtn" title="股票池">☰</button>
+    <div class="ttl">AI缠论<span class="sym" id="topSym">—</span></div>
+    <button class="icobtn" id="recBtn" title="录屏模式（脱敏）">🎥</button>
+    <button class="icobtn" id="algoBtn" title="算法说明">⚙</button>
+  </div>
+  <div class="links" style="padding:6px 12px 0">
+    <a href="index.html">← 交易工作台</a><a href="kelly.html">凯利计算器</a>
+    <span style="float:right" id="dataSrc"></span>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" style="width:270px">
+    <div class="dh"><b>股票池</b><button class="icobtn" id="drawerHide">隐藏 ✕</button></div>
+    <div class="pool" id="pool"></div>
+    <div class="dfoot">
+      <div>分栏宽度</div>
+      <input type="range" id="drawerW" min="220" max="360" step="10" value="270">
+      <div class="note" style="margin:4px 0 0">宽度保存在本机。下次打开抽屉生效。</div>
+    </div>
+  </aside>
+
+  <!-- K线 -->
+  <section class="tabpane on" id="tab-k">
+    <div class="seg" id="periodSeg" style="margin-top:10px">
+      <button data-p="week">周</button>
+      <button data-p="day" class="on">日</button>
+      <button data-p="m30">30分</button>
+      <button data-p="m5">5分</button>
+      <button data-p="m1">1分</button>
+    </div>
+    <div class="caption" id="periodNote"></div>
+    <div class="seg" id="maSeg">
+      <button data-m="ma" class="on">均线</button>
+      <button data-m="boll">布林带</button>
+    </div>
+    <div class="seg" id="subSeg">
+      <button data-s="vol" class="on">成交量</button>
+      <button data-s="macd">MACD</button>
+      <button data-s="kdj">KDJ</button>
+      <button data-s="rsi">RSI</button>
+    </div>
+    <div class="chartbox"><canvas id="chart" height="380"></canvas></div>
+    <div class="legend">
+      <span><i style="border-color:#4da3ff"></i>已确认笔</span>
+      <span><i style="border-color:#ff9f43;border-top-style:dashed"></i>待确认笔（会重绘）</span>
+      <span><i style="border-color:#8b98a8;border-top-style:dashed"></i>形成中笔</span>
+      <span><i style="border-color:#f5c518"></i>闭合中枢</span>
+      <span><i style="border-color:#f5c518;border-top-style:dashed"></i>候选延伸中枢</span>
+    </div>
+    <div class="panrow">
+      <button id="panL">◀ 前移</button>
+      <button id="panR">后移 ▶</button>
+      <button id="noteAdd">＋ 复盘标注</button>
+    </div>
+    <div class="structbar" id="structBar"></div>
+    <div class="card"><h3>结构信号（本工具规则引擎输出）</h3><div id="sigList" style="font-size:13px"></div></div>
+    <div class="card"><h3>复盘标注 <span style="font-weight:400;color:var(--muted);font-size:12px">（本股·本周期）</span></h3><div id="noteList" style="font-size:13px"></div></div>
+  </section>
+
+  <!-- 对话 -->
+  <section class="tabpane" id="tab-chat">
+    <div class="banner info" style="margin-top:10px">AI小缠 · 规则意图引擎（非大模型）。它读取当前股的多周期结构、行情与你的持仓账本作答；每轮回答后会给追问。信号均为"缠论结构信号（本工具规则引擎输出）"，与 V1.1 验证系统无关。</div>
+    <div class="chat" id="chat"></div>
+    <div class="chips" id="chips"></div>
+    <div class="chatbar"><input id="chatIn" placeholder="问：结构 / 关键价 / 区间套 / 做T / 止损 / 选股…" autocomplete="off"><button id="chatSend">发送</button></div>
+  </section>
+
+  <!-- 盯盘 -->
+  <section class="tabpane" id="tab-mon">
+    <div class="banner careful" style="margin-top:10px">仅页面打开且停留本页时有效，每 30 秒刷新一次行情；无后台推送。触发后顶部横幅＋蜂鸣＋记入列表。</div>
+    <div class="switchrow"><span>启用 AI 盯盘（当前股）</span><input type="checkbox" id="monOn"></div>
+    <div class="card"><h3>监控价位</h3><div id="monList"></div>
+      <div class="field" style="margin:8px 0 0"><label>自加价位</label>
+        <div style="display:flex;gap:6px"><input id="monPx" type="number" inputmode="decimal" placeholder="价格"><input id="monNote" placeholder="备注（可选）" style="flex:1.4"><button class="icobtn" id="monAdd">＋</button></div>
+      </div>
+    </div>
+    <div class="card"><h3>触发记录</h3><div class="alertlog" id="alertLog"><div>暂无</div></div></div>
+  </section>
+
+  <!-- 选股 -->
+  <section class="tabpane" id="tab-scan">
+    <div class="banner info" style="margin-top:10px">对观察池＋自选池跑日线结构信号筛查（已确认一/二/三买卖点）。串行加载，约需数十秒；失败的标的会注明。</div>
+    <button class="btn" id="scanBtn">开始筛查</button>
+    <div class="caption" id="scanStatus"></div>
+    <div class="card"><h3>筛查结果</h3><div id="scanList" style="font-size:13px">尚未筛查</div></div>
+  </section>
+
+  <!-- 持仓 -->
+  <section class="tabpane" id="tab-pos">
+    <h2 class="sec">持仓账本 <span style="font-weight:400;font-size:12px;color:var(--muted)">（本机 localStorage）</span></h2>
+    <div id="posList"></div>
+    <div class="card"><h3>新增 / 修改持仓</h3>
+      <div class="field"><label>代码（6位）</label><input id="pCode" inputmode="numeric" placeholder="如 603893"></div>
+      <div class="field"><label>底仓数量（股）</label><input id="pBase" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="field"><label>做T数量（股，可卖存量）</label><input id="pT" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="field"><label>成本价</label><input id="pCost" type="number" inputmode="decimal" placeholder="如 180.5"></div>
+      <div class="field"><label>底仓止损价（只允许上移）</label><input id="pStop" type="number" inputmode="decimal" placeholder="如 165"></div>
+      <button class="btn btn-ghost" id="pSave">保存持仓</button>
+    </div>
+    <div class="card"><h3>识别成交记录 <span style="font-weight:400;font-size:12px;color:var(--muted)">（粘贴文本逐行解析）</span></h3>
+      <div class="field"><label>每行如：买入 乐鑫科技 500股 150.2 / 卖出 603893 200股 195.5 做T</label>
+      <textarea id="tradeText" rows="3" placeholder="买入 乐鑫科技 500股 150.2&#10;卖出 603893 200股 195.5 做T"></textarea></div>
+      <button class="btn btn-ghost" id="tradeParse">解析并记账</button>
+      <div id="tradeMsg" style="font-size:13px;margin-top:6px"></div>
+    </div>
+    <div class="card"><h3>成交记录</h3><div id="tradeList" style="font-size:13px">暂无</div></div>
+  </section>
+
+  <details class="algo" id="algoBox">
+    <summary>算法说明：固定规则与偏离声明（必读）</summary>
+    <ul>
+      <li>未收盘K线剔除规则：bar 的 [t, t+周期时长) 与当前时间有交叠即视为形成中，不参与结构运算。</li>
+      <li>K线包含处理：相邻包含按既有趋势方向合并（上涨取高高低高、下跌取低低高低）。</li>
+      <li>分型：处理后K线中 high[i] 为三根最高 → 顶分型；low[i] 为三根最低 → 底分型。</li>
+      <li>笔：连接相邻异类分型，极值K间隔≥5根；同类分型只保留更极端者。<b>待确认笔</b>（最后一段）与<b>形成中笔</b>会重绘，仅<b>已确认笔</b>用于中枢与买卖点。</li>
+      <li>线段：<b>简化"破坏"规则</b>——反向笔跌破/升破前一同向笔起点则线段终结，至少3笔。原文为特征序列＋缺口规则，社区有三派分歧，此处取"破坏派"思想的操作化。</li>
+      <li>中枢：连续3段方向交替，上沿=三段最高价之最小、下沿=三段最低价之最大。有后续线段离开 → 已验证闭合；否则为候选延伸。原文要求"次级别走势类型"递归，此处以线段近似（社区通行做法）。</li>
+      <li>背驰：<b>操作化定义</b>——后段 MACD(12,26,9) 柱面积 &lt; 前段×0.8。原文"力度"无量化定义（均线缠绕面积/MACD辅助），此处为可代码化的选择。</li>
+      <li>三类买卖点只从<b>已确认</b>结构发出；待确认的标"候选"，点位可能变动。</li>
+      <li>本工具所有"信号"为规则引擎输出的研究信息，<b>不构成买卖建议，不预测价格</b>，与 V1.1 CAN SLIM 验证系统无关。</li>
+    </ul>
+  </details>
+  <div class="note">数据：日线优先本地 data/klines.json（每日更新），周线走腾讯 newfqkline，30/5/1分钟走新浪公开接口；行情走腾讯 qt.gtimg.cn。接口可能延迟、限流或不可用，失败时明确提示、不编造数据。下单前请以券商软件核对。</div>
+  <div class="note">研究工具 · 本地运算 · 不自动交易 · 不构成买卖建议 · 不预测价格</div>
+
+  <nav class="bottomnav">
+    <button data-tab="k" class="on"><span class="ic">📈</span>K线</button>
+    <button data-tab="chat"><span class="ic">💬</span>对话</button>
+    <button data-tab="mon"><span class="ic">👁</span>盯盘</button>
+    <button data-tab="scan"><span class="ic">🔍</span>选股</button>
+    <button data-tab="pos"><span class="ic">💼</span>持仓</button>
+  </nav>
+</div>
+<script src="chan-engine.js"></script>
+<script src="chan.js"></script>
+</body>
+</html>

@@ -637,6 +637,7 @@ function renderNotes() {
   });
 }
 function chartTap(ev) {
+  if (!S.bars.length) return; // K线加载失败时无 bar 可点，避免空数组访问
   var cv = $("chart"), rect = cv.getBoundingClientRect();
   var x = (ev.clientX - rect.left), v = visBars(), n = v.end - v.start + 1;
   var plotW = rect.width - 4 - 52, cw = plotW / n;

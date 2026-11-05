@@ -130,6 +130,20 @@ function buildStrokes(fs, mp) {
     if (f.pi - last.pi >= D.MIN_STROKE_GAP) { kept.push(f); }
     // 间距不足：丢弃后者（简化规则，已声明）
   });
+  /* 待确认笔延伸：若最新分型之后价格突破该分型极值（新高/新低），
+   * 则把最后一个分型更新为新极值点——待确认笔终点随之延伸，状态仍为待确认（会重绘）。
+   * 已确认分型列表（findFractals 输出）不受影响；形成中笔随后从新极值重新计算。 */
+  if (kept.length >= 2) {
+    var _lf = kept[kept.length - 1], _ne = null, _nePi = -1, _p;
+    for (_p = _lf.pi + 1; _p < mp.length; _p++) {
+      if (_lf.type === "top") { if (_ne === null || mp[_p].h > _ne) { _ne = mp[_p].h; _nePi = _p; } }
+      else { if (_ne === null || mp[_p].l < _ne) { _ne = mp[_p].l; _nePi = _p; } }
+    }
+    var _broke = _ne !== null && (_lf.type === "top" ? _ne > _lf.price : _ne < _lf.price);
+    if (_broke) {
+      kept[kept.length - 1] = { pi: _nePi, type: _lf.type, price: _ne, t: mp[_nePi].t, barTo: mp[_nePi].to, extended: true };
+    }
+  }
   for (var i = 0; i + 1 < kept.length; i++) {
     var a = kept[i], b = kept[i + 1];
     var dir = b.type === "top" ? 1 : -1; // 底→顶为向上
@@ -194,20 +208,39 @@ function makeSeg(strokes, a, b, dir) {
   return { dir: dir, hi: hi, lo: lo, idx: idx, rawFrom: rf, rawTo: rt };
 }
 
-/* ---------- 6. 中枢 ---------- */
+/* ---------- 6. 中枢 ----------
+ * 规则：连续 3 段方向交替（线段天然交替）且有价格重叠 → 中枢；
+ * 上沿=三段最高价之最小，下沿=三段最低价之最大。
+ * 延伸：后续线段未离开 [下沿, 上沿] 则并入同一中枢（区间不变，只延长时间）；
+ * 离开：后续线段最高价>上沿 或 最低价<下沿 → 已验证闭合。
+ * 线段不被相邻中枢复用：闭合后从离开段开始找下一个中枢；未闭合则后续皆为延伸，不再成新中枢。
+ * 偏离声明：原文要求"次级别走势类型"递归，此处以线段近似（社区通行做法）。 */
 function buildPivots(segs) {
-  var ps = [];
-  for (var k = 0; k + 2 < segs.length; k++) {
-    var a = segs[k], b = segs[k + 1], c = segs[k + 2];
-    if (a.dir === b.dir || b.dir === c.dir) continue; // 需交替
+  var ps = [], i = 0;
+  while (i + 2 < segs.length) {
+    var a = segs[i], b = segs[i + 1], c = segs[i + 2];
+    if (a.dir === b.dir || b.dir === c.dir) { i++; continue; } // 防御：线段应天然交替
     var top = Math.min(a.hi, b.hi, c.hi), bot = Math.max(a.lo, b.lo, c.lo);
-    if (!(top > bot)) continue;
-    ps.push({
-      top: top, bot: bot, segIdx: [k, k + 1, k + 2],
+    if (!(top > bot)) { i++; continue; }
+    var p = {
+      top: top, bot: bot, segIdx: [i, i + 1, i + 2],
       rawFrom: Math.min(a.rawFrom, b.rawFrom, c.rawFrom),
       rawTo: Math.max(a.rawTo, b.rawTo, c.rawTo),
-      state: (k + 3 < segs.length) ? "closed" : "candidate" // 有后续线段离开 → 已验证闭合
-    });
+      state: "candidate", leaveSegIdx: -1
+    };
+    var j = i + 3, closed = false;
+    while (j < segs.length) {
+      var s = segs[j];
+      if (s.hi > p.top || s.lo < p.bot) { closed = true; p.leaveSegIdx = j; break; }
+      p.segIdx.push(j);
+      p.rawFrom = Math.min(p.rawFrom, s.rawFrom);
+      p.rawTo = Math.max(p.rawTo, s.rawTo);
+      j++;
+    }
+    p.state = closed ? "closed" : "candidate";
+    ps.push(p);
+    if (!closed) break;
+    i = p.leaveSegIdx;
   }
   return ps;
 }
@@ -276,29 +309,39 @@ function buildSignals(strokes, segs, pivots, divergences, bars) {
     }
   });
 
-  // 三类：中枢 + 突破 + 回抽不回中枢（简化）
+  // 三类：中枢 + 突破 + 回抽不回中枢 + 同向已确认笔恢复（简化）
+  // 约束：突破须发生在离开段附近（离开段收尾后 20 根内），缺"恢复"则标候选
   pivots.forEach(function (pv) {
-    if (pv.state !== "closed") return;
-    var dir = null;
-    // 看中枢结束后第一根收盘站上/跌破方向
-    for (var r = pv.rawTo + 1; r < bars.length; r++) {
-      if (bars[r].c > pv.top) { dir = 1; break; }
-      if (bars[r].c < pv.bot) { dir = -1; break; }
+    if (pv.state !== "closed" || pv.leaveSegIdx < 0 || pv.leaveSegIdx >= segs.length) return;
+    var scanEnd = Math.min(segs[pv.leaveSegIdx].rawTo + 20, bars.length - 1);
+    var dir = null, r = -1;
+    // 在离开段附近找第一根收盘站上/跌破的 K 线
+    for (var rr = pv.rawTo + 1; rr <= scanEnd; rr++) {
+      if (bars[rr].c > pv.top) { dir = 1; r = rr; break; }
+      if (bars[rr].c < pv.bot) { dir = -1; r = rr; break; }
     }
     if (!dir) return;
     var edge = dir === 1 ? pv.top : pv.bot;
     var pullBack = null;
-    for (var q = r + 1; q < Math.min(r + 20, bars.length); q++) {
+    for (var q = r + 1; q <= Math.min(r + 20, scanEnd); q++) {
       var inside = dir === 1 ? bars[q].l <= pv.top : bars[q].h >= pv.bot;
       if (inside) break; // 回到中枢 → 三类不成立
       var back = dir === 1 ? bars[q].l : bars[q].h;
       var okEdge = dir === 1 ? back > pv.top : back < pv.bot;
       if (okEdge) { pullBack = { r: q, px: back }; break; }
     }
-    if (pullBack) {
-      push(dir === 1 ? "B3" : "S3", bars[pullBack.r].t, pullBack.px, "confirmed",
-        "回抽不回中枢（" + (dir === 1 ? "上沿" : "下沿") + edge.toFixed(2) + ")");
+    if (!pullBack) return;
+    // 再恢复：中枢结束后第一根同向已确认笔，且其终点不早于回抽
+    var rec = null;
+    for (var si = 0; si < confStrokes.length; si++) {
+      var sc = confStrokes[si];
+      if (sc.rawFrom < pv.rawTo || sc.dir !== dir || sc.rawTo < pullBack.r) continue;
+      rec = sc; break;
     }
+    push(dir === 1 ? "B3" : "S3", bars[pullBack.r].t, pullBack.px,
+      rec ? "confirmed" : "candidate",
+      "回抽不回中枢（" + (dir === 1 ? "上沿" : "下沿") + edge.toFixed(2) + "）" +
+      (rec ? "" : "，待同向已确认笔恢复"));
   });
 
   sigs.sort(function (a, b) { return a.t - b.t; });

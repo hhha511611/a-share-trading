@@ -227,6 +227,16 @@ function getAnalysis(code, period, bars) {
 
 /* ============ 6. K线图渲染 ============ */
 var chart = { N: 140 };
+function rr(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
 function setupCanvas(cv, hCss) {
   var dpr = window.devicePixelRatio || 1;
   var w = cv.clientWidth || cv.parentNode.clientWidth;
@@ -354,20 +364,43 @@ function drawChart() {
       ctx.fillStyle = "#ff9f43"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
       ctx.fillText("待确认·会重绘", W - padR - 4, padT + 10);
     }
-    // 买卖点
+    // 买卖点：进场（买1/2/3）与卖出（卖1/2/3）信号，直接标在对应K线上
+    var badgeBuy = [], badgeSell = [];
     a.signals.forEach(function (sg) {
       var bi = barIdxOf(sg.t);
       if (bi < v.start || bi > v.end) return;
       var i = bi - v.start, isB = sg.type.charAt(0) === "B";
-      var col = sg.state === "confirmed" ? (isB ? "#f04444" : "#22b07d") : "#8b98a8";
-      var y = isB ? Y(S.bars[bi].l) + 14 : Y(S.bars[bi].h) - 14;
-      ctx.fillStyle = col; ctx.textAlign = "center"; ctx.font = "bold 11px sans-serif";
-      ctx.beginPath();
-      if (isB) { ctx.moveTo(X(i), y - 8); ctx.lineTo(X(i) - 5, y); ctx.lineTo(X(i) + 5, y); }
-      else { ctx.moveTo(X(i), y + 8); ctx.lineTo(X(i) - 5, y); ctx.lineTo(X(i) + 5, y); }
-      ctx.closePath(); ctx.fill();
-      var lbl = (SIG_NAME[sg.type] || sg.type) + (sg.state === "confirmed" ? "" : "?");
-      ctx.fillText(lbl, X(i), isB ? y + 12 : y - 10);
+      var confirmed = sg.state === "confirmed";
+      var col = isB ? "#f04444" : "#22b07d";
+      var x = X(i);
+      // 信号K线处画纵向虚线，便于在图中定位
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = confirmed ? col : "#8b98a8";
+      ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, mainH); ctx.stroke();
+      ctx.restore();
+      // 徽标：买1/买2/买3/卖1/卖2/卖3；候选加"?"；已确认实心、候选空心虚线框
+      var txt = (isB ? "买" : "卖") + sg.type.charAt(1) + (confirmed ? "" : "?");
+      ctx.font = "bold 11px sans-serif";
+      var tw = ctx.measureText(txt).width + 12, th = 17;
+      var bx = Math.max(padL + 1, Math.min(W - padR - tw - 1, x - tw / 2));
+      var arr = isB ? badgeBuy : badgeSell, lvl = 0, k;
+      for (k = 0; k < arr.length; k++) if (Math.abs(arr[k] - x) < tw + 6) lvl++;
+      arr.push(x);
+      var by = isB ? Y(S.bars[bi].l) + 5 + lvl * (th + 4)
+                   : Y(S.bars[bi].h) - 5 - th - lvl * (th + 4);
+      if (confirmed) {
+        ctx.fillStyle = col; rr(ctx, bx, by, tw, th, 5); ctx.fill();
+        ctx.fillStyle = "#ffffff";
+      } else {
+        ctx.strokeStyle = "#8b98a8"; ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 3]); rr(ctx, bx, by, tw, th, 5); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = "#8b98a8";
+      }
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(txt, bx + tw / 2, by + th / 2 + 1);
+      ctx.textBaseline = "alphabetic";
     });
   }
   // 标注旗

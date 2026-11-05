@@ -104,6 +104,7 @@
     <h2 class="sec">持仓账本 <span style="font-weight:400;font-size:12px;color:var(--muted)">（本机 localStorage）</span></h2>
     <div id="posList"></div>
     <div class="card"><h3>新增 / 修改持仓</h3>
+      <div class="note" style="margin:0 0 8px">底仓 = 长期持有部分；做T = 日内可滚动卖出的存量。止损只允许上移（已强制）；成本未填时盈亏显示为 —。</div>
       <div class="field"><label>代码（6位）</label><input id="pCode" inputmode="numeric" placeholder="如 603893"></div>
       <div class="field"><label>底仓数量（股）</label><input id="pBase" type="number" inputmode="numeric" placeholder="0"></div>
       <div class="field"><label>做T数量（股，可卖存量）</label><input id="pT" type="number" inputmode="numeric" placeholder="0"></div>
@@ -112,6 +113,7 @@
       <button class="btn btn-ghost" id="pSave">保存持仓</button>
     </div>
     <div class="card"><h3>识别成交记录 <span style="font-weight:400;font-size:12px;color:var(--muted)">（粘贴文本逐行解析）</span></h3>
+      <div class="note" style="margin:0 0 8px">解析成功后会自动过账到持仓：买入加仓按加权均价更新成本（低于现成本会提醒摊平）；卖出先扣做T、再扣底仓；卖超持仓会失败并说明原因；清仓后持仓自动移除，成交记录保留。</div>
       <div class="field"><label>每行如：买入 乐鑫科技 500股 150.2 / 卖出 603893 200股 195.5 做T</label>
       <textarea id="tradeText" rows="3" placeholder="买入 乐鑫科技 500股 150.2&#10;卖出 603893 200股 195.5 做T"></textarea></div>
       <button class="btn btn-ghost" id="tradeParse">解析并记账</button>

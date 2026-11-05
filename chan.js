@@ -252,7 +252,7 @@ function getAnalysis(code, period, bars) {
 }
 
 /* ============ 6. K线图渲染 ============ */
-var chart = { N: 140 };
+var chart = { N: 90 };
 function rr(ctx, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -395,14 +395,7 @@ function drawChart() {
       var confirmed = sg.state === "confirmed";
       var col = isB ? "#f04444" : "#22b07d";
       var x = X(i);
-      // 信号K线处画纵向虚线，便于在图中定位
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.strokeStyle = confirmed ? col : "#8b98a8";
-      ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, mainH); ctx.stroke();
-      ctx.restore();
-      // 徽标：买1/买2/买3/卖1/卖2/卖3；候选加"?"；已确认实心、候选空心虚线框
+      // 徽标：买1/买2/买3/卖1/卖2/卖3；候选加"?"；已确认实心、候选空心虚线框（徽标本身已贴在信号K线上，不再另画纵向虚线，减少杂线）
       var txt = (isB ? "买" : "卖") + sg.type.charAt(1) + (confirmed ? "" : "?");
       ctx.font = "bold 11px sans-serif";
       var tw = ctx.measureText(txt).width + 12, th = 17;
@@ -582,11 +575,7 @@ function refreshQuotes() {
   fetchQuotes(codes).then(function (out) {
     S.quotes = out;
     renderPool();
-    var qq = out[marketCode(S.code)];
-    if (qq && qq.price != null) {
-      $("topSym").textContent = maskName(S.code, codeName(S.code)) + " " + maskCode(S.code) + " · " + PERIODS[S.period].label +
-        "  " + px2(qq.price) + " (" + pct2(qq.pct) + ")";
-    }
+    renderTopSym();
     renderPositions();
   });
 }
@@ -614,11 +603,24 @@ function renderSignals() {
     var cls = s.state === "confirmed" ? (isB ? "tag b1" : "tag s1") : "tag cand";
     return '<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="' + cls + '">' +
       (SIG_NAME[s.type] || s.type) + (s.state === "confirmed" ? "" : "·候选") + "</span> " +
-      "<b>" + px2(s.price) + "</b> <span style='color:var(--muted)'>" + bjDate(s.t) + " · " + esc(s.note) + "</span></div>";
+      "<b>" + px2(s.price) + "</b> <span style='color:var(--muted)'>" + bjDate(s.t) + "</span>" +
+      '<div style="color:var(--muted);font-size:12px;margin-top:2px">' + esc(s.note) + "</div></div>";
   }).join("") + '<div class="note" style="margin:6px 0 0">共 ' + a.signals.length + " 个信号，仅列最近 6 个；" + DISCL + "；候选信号点位可能变动，仅已确认信号用于定位。</div>";
 }
+/* 顶栏标题：任何时候都显示当前股＋周期；有实时行情则带现价涨跌，无行情则带最后一根收盘价（行情失败时不再只剩一个"—"） */
+function renderTopSym() {
+  var el = $("topSym");
+  if (!el) return;
+  var q = S.quotes[marketCode(S.code)];
+  var base = maskName(S.code, codeName(S.code)) + " " + maskCode(S.code) + " · " + PERIODS[S.period].label;
+  if (q && q.price != null) el.textContent = base + "  " + px2(q.price) + " (" + pct2(q.pct) + ")";
+  else if (S.bars.length) {
+    var lb = S.bars[S.bars.length - 1];
+    el.textContent = base + "  收 " + px2(lb.c) + "（" + bjDate(lb.t).slice(5) + "）";
+  } else el.textContent = base;
+}
 function renderAll() {
-  setPeriodNote(); drawChart(); renderStructBar(); renderSignals(); renderNotes();
+  setPeriodNote(); drawChart(); renderStructBar(); renderSignals(); renderNotes(); renderTopSym();
 }
 
 /* ============ 9. 复盘标注 ============ */
@@ -965,16 +967,32 @@ function renderPositions() {
   var el = $("posList");
   var ps = S.ledger.positions;
   if (!ps.length) { el.innerHTML = '<div class="caption">暂无持仓</div>'; return; }
-  el.innerHTML = ps.map(function (p, i) {
+  // 合计：市值按实时价（无行情则按成本计）、浮动盈亏只计成本已填的仓位
+  var totVal = 0, totPnl = 0, totPnlOk = false, noStop = 0, noCost = 0;
+  ps.forEach(function (p) {
     var q = S.quotes[marketCode(p.code)] || {};
     var qty = (p.baseQty || 0) + (p.tQty || 0);
-    var pnl = q.price != null ? (q.price - p.cost) * qty : null;
+    if (q.price != null) totVal += q.price * qty;
+    else if (p.cost > 0) totVal += p.cost * qty;
+    if (q.price != null && p.cost > 0) { totPnl += (q.price - p.cost) * qty; totPnlOk = true; }
+    if (!(p.stop > 0)) noStop++;
+    if (!(p.cost > 0)) noCost++;
+  });
+  var head = '<div class="kv" style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="k">合计市值</span><span class="v"><b>' + Math.round(totVal) + "元</b></span></div>" +
+    '<div class="kv" style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="k">合计浮动盈亏</span><span class="v ' + (totPnl >= 0 ? "up" : "down") + '"><b>' +
+    (totPnlOk ? (totPnl >= 0 ? "+" : "") + Math.round(totPnl) + "元" : DASH) + "</b></span></div>" +
+    ((noStop || noCost) ? '<div class="note" style="margin:6px 0 0">' +
+      (noStop ? noStop + " 只未设止损" : "") + (noStop && noCost ? "、" : "") + (noCost ? noCost + " 只未填成本（盈亏暂不计算）" : "") + "。</div>" : "");
+  el.innerHTML = head + ps.map(function (p, i) {
+    var q = S.quotes[marketCode(p.code)] || {};
+    var qty = (p.baseQty || 0) + (p.tQty || 0);
+    var pnl = (q.price != null && p.cost > 0) ? (q.price - p.cost) * qty : null;
     var belowStop = q.price != null && p.stop > 0 && q.price < p.stop;
     return '<div class="pos"><div class="ph"><b>' + esc(maskName(p.code, p.name || p.code)) + " " + esc(maskCode(p.code)) + "</b>" +
       '<button class="del" data-pdel="' + i + '">删除</button></div>' +
       '<div class="kv"><span class="k">现价 / 涨跌</span><span class="v">' + px2(q.price) + " / " + pct2(q.pct) + "</span></div>" +
       '<div class="kv"><span class="k">底仓 / 做T</span><span class="v">' + (p.baseQty || 0) + " / " + (p.tQty || 0) + " 股</span></div>" +
-      '<div class="kv"><span class="k">成本 / 止损</span><span class="v">' + px2(p.cost) + " / " + px2(p.stop) + "</span></div>" +
+      '<div class="kv"><span class="k">成本 / 止损</span><span class="v">' + (p.cost > 0 ? px2(p.cost) : "未填") + " / " + (p.stop > 0 ? px2(p.stop) : "未设") + "</span></div>" +
       '<div class="kv"><span class="k">浮动盈亏</span><span class="v ' + (pnl >= 0 ? "up" : "down") + '">' + (pnl === null ? DASH : (pnl >= 0 ? "+" : "") + Math.round(pnl) + "元") + "</span></div>" +
       (belowStop ? '<div class="banner defend" style="margin:6px 0 0">现价已低于止损' + px2(p.stop) + "，按纪律应离场、不摊平。</div>" : "") +
       "</div>";
@@ -986,6 +1004,60 @@ function renderPositions() {
       lsSet(LS.ledger, S.ledger); renderPositions(); renderPool();
     };
   });
+}
+/* 成交记录过账到持仓（对话规则的操作化）：
+ * 买入：加仓，成本按加权均价更新；卖出：先扣做T、再扣底仓，成本不变；清仓自动移除持仓（成交记录保留）。
+ * 买入价低于现成本 = 摊平补仓：按规则不建议，但成交已是事实，照实记账并明确提醒，不拦单。
+ * 返回每条的处理结果（ok/原因），供记账提示展示。 */
+function applyTrades(list) {
+  var res = [];
+  list.forEach(function (t) {
+    var p = myPosition(t.code);
+    if (t.dir === "买入") {
+      if (!p) {
+        p = { code: t.code, name: t.name || t.code, baseQty: 0, tQty: 0, cost: t.price, stop: 0 };
+        S.ledger.positions.push(p);
+      }
+      var oldQty = (p.baseQty || 0) + (p.tQty || 0);
+      var warn = "";
+      if (oldQty > 0 && p.cost > 0) {
+        if (t.price < p.cost) warn = "⚠ 买入价低于持仓成本，属于摊平补仓，按你的规则不建议（已照实记账）。";
+        p.cost = (p.cost * oldQty + t.price * t.qty) / (oldQty + t.qty);
+      } else if (oldQty > 0 && !(p.cost > 0)) {
+        p.cost = t.price;
+        warn = "（原成本未填，本次起成本按本次买入价计。）";
+      } else {
+        p.cost = t.price;
+      }
+      if (t.kind === "做T") p.tQty = (p.tQty || 0) + t.qty;
+      else p.baseQty = (p.baseQty || 0) + t.qty;
+      res.push({ ok: true, msg: t.name + " 买入 " + t.qty + "股 @ " + px2(t.price) + "（" + (t.kind === "做T" ? "做T" : "底仓") + "），现成本 " + px2(p.cost) + "。" + warn });
+    } else {
+      if (!p || ((p.baseQty || 0) + (p.tQty || 0)) < t.qty) {
+        res.push({ ok: false, msg: t.name + " 卖出 " + t.qty + "股失败：持仓不足（现有 " + (p ? ((p.baseQty || 0) + (p.tQty || 0)) : 0) + "股），未记账。" });
+        return;
+      }
+      var left = t.qty, fromT = 0, fromBase = 0;
+      if (t.kind === "做T") {
+        if ((p.tQty || 0) < t.qty) { res.push({ ok: false, msg: t.name + " 卖出做T " + t.qty + "股失败：做T存量仅 " + (p.tQty || 0) + "股，未记账（可改记底仓卖出）。" }); return; }
+        p.tQty -= t.qty; fromT = t.qty;
+      } else if (t.kind === "底仓") {
+        if ((p.baseQty || 0) < t.qty) { res.push({ ok: false, msg: t.name + " 卖出底仓 " + t.qty + "股失败：底仓仅 " + (p.baseQty || 0) + "股，未记账。" }); return; }
+        p.baseQty -= t.qty; fromBase = t.qty;
+      } else {
+        fromT = Math.min(p.tQty || 0, left); p.tQty = (p.tQty || 0) - fromT; left -= fromT;
+        fromBase = Math.min(p.baseQty || 0, left); p.baseQty = (p.baseQty || 0) - fromBase; left -= fromBase;
+      }
+      var split = (t.kind ? "" : "（先扣做T " + fromT + "股、再扣底仓 " + fromBase + "股）");
+      if ((p.baseQty || 0) + (p.tQty || 0) === 0) {
+        S.ledger.positions.splice(S.ledger.positions.indexOf(p), 1);
+        res.push({ ok: true, msg: t.name + " 卖出 " + t.qty + "股 @ " + px2(t.price) + split + "，已清仓，持仓已移除（成交记录保留）。" });
+      } else {
+        res.push({ ok: true, msg: t.name + " 卖出 " + t.qty + "股 @ " + px2(t.price) + split + "，剩余 " + ((p.baseQty || 0) + (p.tQty || 0)) + "股。" });
+      }
+    }
+  });
+  return res;
 }
 function renderTrades() {
   var el = $("tradeList"), ts = S.ledger.trades;
@@ -1122,6 +1194,7 @@ function init() {
       stop: parseFloat($("pStop").value || "0") || 0
     };
     if (old && p.stop < old.stop && old.stop > 0) { alert("拒绝：新止损低于原止损。止损只允许上移。"); return; }
+    if ((p.baseQty + p.tQty) === 0) { alert("底仓＋做T数量不能同时为 0；清仓请用持仓卡片上的删除。"); return; }
     if (old) S.ledger.positions.splice(S.ledger.positions.indexOf(old), 1);
     if (!p.name) {
       var q = S.quotes[marketCode(code)];
@@ -1135,10 +1208,12 @@ function init() {
   $("tradeParse").onclick = function () {
     var r = parseTrades($("tradeText").value);
     r.ok.forEach(function (t) { S.ledger.trades.push(t); });
+    var applied = applyTrades(r.ok);
     lsSet(LS.ledger, S.ledger);
-    renderTrades();
+    renderTrades(); renderPositions(); renderPool();
     var msg = "成功解析 " + r.ok.length + " 条并记账。";
-    if (r.fail.length) msg += "失败 " + r.fail.length + " 条：<br>" + r.fail.map(esc).join("<br>");
+    applied.forEach(function (a) { msg += "<br>" + (a.ok ? "✓ " : "✗ ") + esc(a.msg); });
+    if (r.fail.length) msg += "<br>解析失败 " + r.fail.length + " 条（未记账）：<br>" + r.fail.map(esc).join("<br>");
     $("tradeMsg").innerHTML = msg;
     $("tradeText").value = "";
   };

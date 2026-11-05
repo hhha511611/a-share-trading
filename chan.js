@@ -64,7 +64,9 @@ var TACTICS = [
 var LS = { custom: "chan_custom_v1", ledger: "chan_ledger_v1", notes: "chan_notes_v1", mon: "chan_mon_v1", set: "chan_set_v1" };
 function lsGet(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v === null || v === undefined ? d : v; } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
-var settings = Object.assign({ rec: false, ma: true, boll: false, sub: "vol", drawerW: 270, monOn: false }, lsGet(LS.set, {}));
+var _savedSet = lsGet(LS.set, {});
+var settings = Object.assign({ rec: false, ma: false, boll: false, sub: "vol", drawerW: 270, monOn: false, v: 2 }, _savedSet);
+if (!_savedSet.v) { settings.ma = false; settings.boll = false; settings.sub = "vol"; settings.v = 2; saveSettings(); }
 function saveSettings() { lsSet(LS.set, settings); }
 
 /* 录屏脱敏 */
@@ -183,6 +185,30 @@ function loadKlines(code, period) {
     return seq[i](code).catch(function (e) { errs.push(String(e && e.message || e)); return next(i + 1); });
   }
   return next(0);
+}
+
+/* 日线实时补齐：本地文件是收盘后快照，盘中会滞后一天；
+ * 后台拉实时日K（腾讯→新浪），只补当日 bar：比本地末 bar 新则追加，
+ * 与末 bar 同日且当日未收盘则刷新该 bar（结构运算会剔除未收盘 bar，只影响显示）。 */
+function mergeLiveDay(localBars, liveBars) {
+  if (!liveBars || !liveBars.length || !localBars.length) return null;
+  var merged = localBars.slice();
+  var last = merged[merged.length - 1];
+  var changed = false, today = bjDate(Date.now());
+  liveBars.forEach(function (b) {
+    if (b.t > last.t) { merged.push(b); last = b; changed = true; }
+    else if (b.t === last.t && bjDate(b.t) === today) {
+      if (b.c !== last.c || b.h !== last.h || b.l !== last.l || b.v !== last.v) {
+        merged[merged.length - 1] = b; last = b; changed = true;
+      }
+    }
+  });
+  return changed ? merged : null;
+}
+function tryLiveDay(code) {
+  function attempt(fn) { return fn(code).then(function (r) { return r.bars; }); }
+  return attempt(loadTencentDay).catch(function () { return attempt(loadSinaDay); })
+    .then(function (liveBars) { return mergeLiveDay(S.bars, liveBars); });
 }
 
 /* 行情 */
@@ -326,7 +352,8 @@ function drawChart() {
 
   var a = S.analysis;
   if (a) {
-    // 中枢（先画，垫底）
+    // 中枢（先画，垫底）；只给最新一个中枢标文字，旧中枢只留框
+    var lastPi = a.pivots.length ? a.pivots[a.pivots.length - 1] : null;
     a.pivots.forEach(function (p) {
       var x1 = X(Math.max(0, p.rawFrom - v.start)) - cw / 2, x2 = X(Math.min(n - 1, p.rawTo - v.start)) + cw / 2;
       if (x2 < padL || x1 > W - padR) return;
@@ -339,11 +366,13 @@ function drawChart() {
       ctx.fillRect(x1, Y(p.top), x2 - x1, Y(p.bot) - Y(p.top));
       ctx.strokeRect(x1, Y(p.top), x2 - x1, Y(p.bot) - Y(p.top));
       ctx.setLineDash([]);
-      ctx.fillStyle = p.state === "closed" ? "#f5c518" : "rgba(245,197,24,.8)";
-      ctx.font = "10px sans-serif"; ctx.textAlign = "left";
-      ctx.fillText(p.state === "closed" ? "中枢" : "中枢候选·震荡延续中", x1 + 3, Y(p.top) - 4);
+      if (p === lastPi) {
+        ctx.fillStyle = p.state === "closed" ? "#f5c518" : "rgba(245,197,24,.8)";
+        ctx.font = "10px sans-serif"; ctx.textAlign = "left";
+        ctx.fillText(p.state === "closed" ? "中枢" : "候选中枢", x1 + 3, Y(p.top) - 4);
+      }
     });
-    // 笔
+    // 笔：已确认实线，待确认虚线；形成中笔不再绘制（每 tick 重绘的预览线，不是笔）
     function strokeLine(s, color, dash, width) {
       var i1 = s.rawFrom - v.start, i2 = s.rawTo - v.start;
       if (i2 < 0 || i1 >= n) return;
@@ -357,13 +386,6 @@ function drawChart() {
       if (s.state === "confirmed") strokeLine(s, "#4da3ff");
       else strokeLine(s, "#ff9f43", [6, 4]);
     });
-    if (a.formingStroke) strokeLine(a.formingStroke, "#8b98a8", [3, 4], 1.2);
-    var pend = a.strokes.filter(function (s) { return s.state === "pending"; });
-    if (pend.length) {
-      var lp = pend[pend.length - 1];
-      ctx.fillStyle = "#ff9f43"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
-      ctx.fillText("待确认·会重绘", W - padR - 4, padT + 10);
-    }
     // 买卖点：进场（买1/2/3）与卖出（卖1/2/3）信号，直接标在对应K线上
     var badgeBuy = [], badgeSell = [];
     a.signals.forEach(function (sg) {
@@ -421,7 +443,7 @@ function drawChart() {
   ctx.strokeStyle = "#1c2635";
   ctx.beginPath(); ctx.moveTo(padL, sy0); ctx.lineTo(W - padR, sy0); ctx.stroke();
   ctx.fillStyle = "#5c6a7d"; ctx.textAlign = "left"; ctx.font = "10px sans-serif";
-  ctx.fillText({ vol: "成交量", macd: "MACD(12,26,9)", kdj: "KDJ(9,3,3)", rsi: "RSI(14)" }[settings.sub], padL + 2, sy0 + 11);
+  ctx.fillText({ vol: "成交量", macd: "MACD(12,26,9)" }[settings.sub] || "成交量", padL + 2, sy0 + 11);
   var closes = S.bars.map(function (b) { return b.c; });
   if (settings.sub === "vol") {
     var vmx = 0; bars.forEach(function (b) { vmx = Math.max(vmx, b.v || 0); }); vmx = vmx || 1;
@@ -450,24 +472,6 @@ function drawChart() {
       }
       ctx.stroke();
     });
-  } else if (settings.sub === "kdj") {
-    var kd = ChanEngine.kdj(S.bars);
-    function KY(p) { return sy0 + sh - 4 - p / 120 * (sh - 20); }
-    [["k", "#f5c518"], ["d", "#4da3ff"], ["j", "#b083f0"]].forEach(function (kv) {
-      ctx.strokeStyle = kv[1]; ctx.lineWidth = 1; ctx.beginPath();
-      for (var i = 0; i < n; i++) { var vv = kd[kv[0]][v.start + i]; if (i) ctx.lineTo(X(i), KY(vv)); else ctx.moveTo(X(i), KY(vv)); }
-      ctx.stroke();
-    });
-  } else if (settings.sub === "rsi") {
-    var rs = ChanEngine.rsi(closes, 14);
-    function RY(p) { return sy0 + sh - 4 - p / 100 * (sh - 20); }
-    ctx.strokeStyle = "#b083f0"; ctx.lineWidth = 1.2; ctx.beginPath();
-    var st2 = false;
-    for (var i = 0; i < n; i++) {
-      var vv = rs[v.start + i]; if (vv === null) continue;
-      if (!st2) { ctx.moveTo(X(i), RY(vv)); st2 = true; } else ctx.lineTo(X(i), RY(vv));
-    }
-    ctx.stroke();
   }
   // 分隔信息
   ctx.fillStyle = "#5c6a7d"; ctx.textAlign = "right"; ctx.font = "10px sans-serif";
@@ -554,6 +558,17 @@ function refreshAll() {
     S.analysis = getAnalysis(code, period, S.bars);
     $("dataSrc").textContent = r.src;
     renderAll();
+    // 日线且走本地快照时，后台补当日实时 bar（盘中否则滞后一天）
+    if (period === "day" && r.src.indexOf("本地") === 0) {
+      tryLiveDay(code).then(function (merged) {
+        if (merged && S.code === code && S.period === "day") {
+          S.bars = merged; S.ksrc = r.src + "＋今日实时"; S.knote = S.ksrc;
+          anaCache = {}; S.analysis = getAnalysis(code, period, S.bars);
+          $("dataSrc").textContent = S.ksrc;
+          renderAll();
+        }
+      }).catch(function () {});
+    }
   }).catch(function (e) {
     S.bars = []; S.analysis = null;
     S.knote = "加载失败：" + e;
@@ -575,28 +590,32 @@ function refreshQuotes() {
     renderPositions();
   });
 }
+/* 状态行（一目了然）：位置（相对最近中枢）＋中枢区间＋最近一段方向＋最近已确认信号＋背驰 */
 function renderStructBar() {
   var a = S.analysis, el = $("structBar");
   if (!a) { el.innerHTML = ""; return; }
-  var cf = a.strokes.filter(function (s) { return s.state === "confirmed"; }).length;
-  var pd = a.strokes.filter(function (s) { return s.state === "pending"; }).length;
-  var pc = a.pivots.filter(function (p) { return p.state === "closed"; }).length;
-  var pk = a.pivots.filter(function (p) { return p.state === "candidate"; }).length;
-  var sg = a.signals.filter(function (s) { return s.state === "confirmed"; }).length;
-  el.innerHTML = "<span>已确认笔 " + cf + "</span><span>待确认笔 " + pd + "</span>" +
-    "<span>中枢 " + a.pivots.length + "（闭合" + pc + "/候选" + pk + "）</span>" +
-    "<span>背驰 " + a.divergences.length + "</span><span>已确认信号 " + sg + "</span>";
+  var parts = [];
+  if (a.lastPivot) {
+    var pos = a.lastClose > a.lastPivot.top ? "中枢上方" : a.lastClose < a.lastPivot.bot ? "中枢下方" : "中枢内";
+    parts.push(pos + " · 中枢 " + px2(a.lastPivot.bot) + "–" + px2(a.lastPivot.top) + (a.lastPivot.state === "candidate" ? "（候选）" : ""));
+  } else parts.push("无中枢");
+  var lastSeg = a.segments.length ? a.segments[a.segments.length - 1] : null;
+  if (lastSeg) parts.push("最近一段" + (lastSeg.dir > 0 ? "向上" : "向下"));
+  var conf = a.signals.filter(function (s) { return s.state === "confirmed"; });
+  parts.push(conf.length ? "最近已确认：" + (SIG_NAME[conf[conf.length - 1].type] || conf[conf.length - 1].type) + " @" + px2(conf[conf.length - 1].price) : "无已确认信号");
+  if (a.divergences.length) parts.push("背驰 " + a.divergences.length + " 处");
+  el.innerHTML = parts.map(function (p) { return "<span>" + p + "</span>"; }).join("");
 }
 function renderSignals() {
   var a = S.analysis, el = $("sigList");
   if (!a || !a.signals.length) { el.innerHTML = '<span style="color:var(--muted)">当前无结构信号</span>'; return; }
-  el.innerHTML = a.signals.slice().reverse().map(function (s) {
+  el.innerHTML = a.signals.slice().reverse().slice(0, 6).map(function (s) {
     var isB = s.type.charAt(0) === "B";
     var cls = s.state === "confirmed" ? (isB ? "tag b1" : "tag s1") : "tag cand";
     return '<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="' + cls + '">' +
       (SIG_NAME[s.type] || s.type) + (s.state === "confirmed" ? "" : "·候选") + "</span> " +
       "<b>" + px2(s.price) + "</b> <span style='color:var(--muted)'>" + bjDate(s.t) + " · " + esc(s.note) + "</span></div>";
-  }).join("") + '<div class="note" style="margin:6px 0 0">' + DISCL + "；候选信号点位可能变动，仅已确认信号用于定位。</div>";
+  }).join("") + '<div class="note" style="margin:6px 0 0">共 ' + a.signals.length + " 个信号，仅列最近 6 个；" + DISCL + "；候选信号点位可能变动，仅已确认信号用于定位。</div>";
 }
 function renderAll() {
   setPeriodNote(); drawChart(); renderStructBar(); renderSignals(); renderNotes();
@@ -1061,9 +1080,10 @@ function init() {
     };
   });
   document.querySelectorAll("#subSeg button").forEach(function (x) { x.classList.toggle("on", x.getAttribute("data-s") === settings.sub); });
-  // 平移 / 标注
+  // 平移 / 标注 / 刷新
   $("panL").onclick = function () { S.pan = Math.min(S.bars.length - chart.N, S.pan + 20); drawChart(); };
   $("panR").onclick = function () { S.pan = Math.max(0, S.pan - 20); drawChart(); };
+  $("refreshBtn").onclick = function () { refreshAll(); };
   $("noteAdd").onclick = function () {
     S.annotateArm = !S.annotateArm;
     $("noteAdd").textContent = S.annotateArm ? "点图表位置…" : "＋ 复盘标注";

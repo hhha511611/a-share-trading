@@ -246,7 +246,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
 </div>
   <div id="tabV5" style="display:none">
 <h2>V5 智能分析<span class="v5tag">研究参考</span></h2>
-<div class="v5warn">这是 ChatGPT V5 通用分析原型的手机版，仅作研究参考。<b>它不是 V1.1 系统</b>：技术评分、"进入候选"等结论文字不是买卖信号；V1.1 的 7 条件人工核对、M 门、A 档基本面门槛不变。财务字段没有浏览器可用的数据源，需按巨潮公告手动填写，缺失不计分。</div>
+<div class="v5warn">这是 ChatGPT V5 通用分析原型的手机版，仅作研究参考。<b>它不是 V1.1 系统</b>：技术评分、"进入候选"等结论文字不是买卖信号；V1.1 的 7 条件人工核对、M 门、A 档基本面门槛不变。财务由东方财富数据中心自动拉取最新报告期数据填充（可手动修改）；扣非同比不在该接口内，V1.1 正式核查仍以巨潮公告为准。市场环境为均线口径，非 V1.1 M 门（派发日计数）。</div>
 
 <div class="seg" id="v5ModeSeg">
   <button data-v5m="single" class="on">单只股票</button>
@@ -268,21 +268,23 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
       <div class="metric"><div class="k">市场环境</div><div class="v" id="v5Mkt">—</div></div>
       <div class="metric"><div class="k">技术评分</div><div class="v" id="v5Score">—</div></div>
     </div>
-    <div class="v5h3">1｜财务增长（手动填写，以巨潮公告为准）</div>
+    <div class="v5h3">1｜财务增长（自动拉取最新报告期，可手动修改）</div>
     <div class="v5grid2">
       <div class="field"><label>营收同比 %</label><input id="v5fRev" type="number" step="0.01" inputmode="decimal" placeholder="如 25.5"></div>
-      <div class="field"><label>净利润同比 %</label><input id="v5fProf" type="number" step="0.01" inputmode="decimal" placeholder="如 30.2"></div>
+      <div class="field"><label>净利润同比 %（归母）</label><input id="v5fProf" type="number" step="0.01" inputmode="decimal" placeholder="如 30.2"></div>
       <div class="field"><label>ROE %</label><input id="v5fRoe" type="number" step="0.01" inputmode="decimal"></div>
       <div class="field"><label>EPS（元）</label><input id="v5fEps" type="number" step="0.001" inputmode="decimal"></div>
-      <div class="field"><label>经营现金流（万元）</label><input id="v5fOcf" type="number" step="1" inputmode="decimal"></div>
+      <div class="field"><label>每股经营现金流（元）</label><input id="v5fOcf" type="number" step="0.01" inputmode="decimal"></div>
     </div>
     <div class="caption">财务可用性 <span id="v5FinAvail">0</span>/5；缺失不计分、不当零。N（新产品/催化）、I（机构持仓变化）需结合公告人工核验。</div>
+    <div class="caption" id="v5FinSrc"></div>
+    <div class="caption" id="v5CaLine" style="display:none"></div>
     <div class="v5h3">2｜趋势与突破</div>
     <div class="metrics">
       <div class="metric"><div class="k">MA20</div><div class="v" id="v5ma20">—</div></div>
       <div class="metric"><div class="k">MA50</div><div class="v" id="v5ma50">—</div></div>
       <div class="metric"><div class="k">MA200</div><div class="v" id="v5ma200">—</div></div>
-      <div class="metric"><div class="k">20 日量比</div><div class="v" id="v5volr">—</div></div>
+      <div class="metric"><div class="k">50 日量比</div><div class="v" id="v5volr">—</div></div>
     </div>
     <div id="v5TechKv" style="margin-top:8px"></div>
     <canvas class="v5chart" id="v5Chart"></canvas>
@@ -290,7 +292,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
     <div class="field"><label>账户资金（元）</label><input id="v5Cap2" type="number" min="1000" value="100000" step="10000"></div>
     <div class="field"><label>单笔风险预算</label>
       <div class="seg" id="v5RiskSeg">
-        <button data-r="0.25">0.25%</button><button data-r="0.5" class="on">0.5%</button><button data-r="0.75">0.75%</button><button data-r="1.0">1.0%</button><button data-r="1.5">1.5%</button>
+        <button data-r="1.0" class="on">1.0%</button><button data-r="1.25">1.25%</button><button data-r="1.5">1.5%</button>
       </div>
     </div>
     <div class="field"><label>目标风险收益比</label>
@@ -304,7 +306,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
       <div class="metric"><div class="k">风险预算</div><div class="v" id="v5RiskCash">—</div></div>
       <div class="metric"><div class="k">风险仓位股数</div><div class="v" id="v5Shares">—</div></div>
     </div>
-    <div class="caption">参考价位是规则计算结果，不是买入指令。止损取 20 日低点与现价×0.92 孰低；若止损结构不合理，应放弃交易而非扩大风险。</div>
+    <div class="caption">参考价位是规则计算结果，不是买入指令。参考止损取现价×0.925（V1.1 硬止损 7–8%，此处取 7.5%）；20 日最低仅作参考，不决定止损。若止损结构不合理，应放弃交易而非扩大风险。</div>
     <div class="v5h3">4｜系统结论（规则化，非预测）</div>
     <div class="banner careful" id="v5Verdict"></div>
   </div>
@@ -318,11 +320,11 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
   <div class="progress" id="v5ProgWrap" style="display:none"><div id="v5Prog"></div></div>
   <div class="err" id="v5SectorErr" style="display:none"></div>
   <div class="table-wrap" style="margin-top:8px"><table>
-    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>20日突破</th><th>近高位</th><th>20日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
+    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>55日突破</th><th>近高位</th><th>50日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
     <tbody id="v5SectorBody"><tr><td colspan="9" style="text-align:center;color:#999">尚未扫描</td></tr></tbody>
   </table></div>
   <button class="btn btn-ghost" id="v5CsvBtn" style="display:none;margin-top:8px">下载扫描结果 CSV</button>
-  <div class="caption">按成交额抽取前 N 只，非全行业全量排名；技术评分为透明启发式，非收益预测；财务/产业链需对候选逐只做单股分析。</div>
+  <div class="caption">按成交额抽取前 N 只，非全行业全量排名；技术评分 = Stage2 25 + 20日突破 10 + 55日突破 10 + 近250日高点 15 + 60日收益 15 + 120日收益 10 + 50日量比 15，非收益预测；财务/产业链需对候选逐只做单股分析。</div>
 </div>
 
 <!-- 多股比较 -->
@@ -331,13 +333,13 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
   <button class="btn" id="v5CmpBtn">比较股票</button>
   <div class="err" id="v5CmpErr" style="display:none"></div>
   <div class="table-wrap" style="margin-top:8px"><table>
-    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>20日突破</th><th>20日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
+    <thead><tr><th>代码</th><th>名称</th><th>技术评分</th><th>Stage2</th><th>55日突破</th><th>50日量比</th><th>60日收益%</th><th>最新价</th></tr></thead>
     <tbody id="v5CmpBody"><tr><td colspan="8" style="text-align:center;color:#999">尚未比较</td></tr></tbody>
   </table></div>
   <button class="btn btn-ghost" id="v5CmpCsvBtn" style="display:none;margin-top:8px">下载比较结果 CSV</button>
 </div>
 
-<div class="caption" style="margin-top:18px">V5 · 数据源：腾讯 / 新浪 / 东方财富公开接口 · K 线为新浪前复权口径 · 仅研究参考，不构成投资建议，不自动下单</div>
+<div class="caption" style="margin-top:18px">V5 · 数据源：腾讯 / 新浪 / 东方财富公开接口；财务：东方财富数据中心（最新报告期） · K 线为新浪前复权口径 · 仅研究参考，不构成投资建议，不自动下单</div>
 
   </div>
 
@@ -1206,31 +1208,35 @@ function calcTech(rows){
   var ma20=ma(20),ma50=ma(50),ma200=ma(200);
   var high20=n>21?Math.max.apply(null,high.slice(n-21,n-1)):NaN;
   var high55=n>56?Math.max.apply(null,high.slice(n-56,n-1)):NaN;
-  var vol20=n>21?mean(vol.slice(n-21,n-1)):NaN;
+  var vol50=n>51?mean(vol.slice(n-51,n-1)):NaN;
   var price=close[n-1];
-  var volratio=(vol20&&vol20>0)?vol[n-1]/vol20:NaN;
+  var volratio=(vol50&&vol50>0)?vol[n-1]/vol50:NaN;
   var ret20=n>21?price/close[n-21]-1:NaN;
   var ret60=n>61?price/close[n-61]-1:NaN;
   var ret120=n>121?price/close[n-121]-1:NaN;
   var ma200ago=n>220?mean(close.slice(n-219,n-19)):NaN;
   var stage2=n>220&&!isNaN(ma200)&&!isNaN(ma200ago)&&price>ma50&&ma50>ma200&&ma200>ma200ago;
   var breakout20=!isNaN(high20)&&price>high20;
-  var h120max=n>120?Math.max.apply(null,high.slice(n-120)):Math.max.apply(null,high);
-  var nearhigh=price>=h120max*0.85;
-  var low20=n>20?Math.min.apply(null,low.slice(n-20)):NaN;
+  var breakout55=!isNaN(high55)&&price>high55;
+  var h250max=n>250?Math.max.apply(null,high.slice(n-250)):Math.max.apply(null,high);
+  var nearhigh=price>=h250max*0.85;
+  var laggard=!isNaN(ret120)&&price<h250max*0.70&&ret120<0;
+  var low20=n>21?Math.min.apply(null,low.slice(n-21,n-1)):NaN;
   return {price:price,ma20:ma20,ma50:ma50,ma200:ma200,high20:high20,high55:high55,
     volratio:volratio,ret20:ret20,ret60:ret60,ret120:ret120,stage2:stage2,
-    breakout20:breakout20,nearhigh:nearhigh,low20:low20,lastDate:rows[n-1].day,close:close};
+    breakout20:breakout20,breakout55:breakout55,nearhigh:nearhigh,laggard:laggard,
+    h250max:h250max,low20:low20,lastDate:rows[n-1].day,close:close};
 }
 function techScore(t){
   if(!t)return 0;
   var s=0;
   if(t.stage2)s+=25;
-  if(t.breakout20)s+=20;
+  if(t.breakout20)s+=10;
+  if(t.breakout55)s+=10;
   if(t.nearhigh)s+=15;
   if(t.ret60>0)s+=15;
   if(t.ret120>0)s+=10;
-  if(t.volratio>=1.3)s+=15;else if(t.volratio>=1)s+=5;
+  if(t.volratio>=1.4)s+=15;else if(t.volratio>=1)s+=5;
   return s;
 }
 function marketCtx(){
@@ -1244,18 +1250,42 @@ function marketCtx(){
 }
 
 /* ---------- 单只股票 ---------- */
-var v5Risk=0.5,v5Rr=2.0,v5LastT=null,v5LastPrice=NaN;
+var v5Risk=1.0,v5Rr=2.0,v5LastT=null,v5LastPrice=NaN;
 document.querySelectorAll("#v5RiskSeg button").forEach(function(b){
   b.onclick=function(){document.querySelectorAll("#v5RiskSeg button").forEach(function(x){x.classList.remove("on");});b.classList.add("on");v5Risk=parseFloat(b.getAttribute("data-r"));renderV5Plan();};
 });
 document.querySelectorAll("#v5RrSeg button").forEach(function(b){
   b.onclick=function(){document.querySelectorAll("#v5RrSeg button").forEach(function(x){x.classList.remove("on");});b.classList.add("on");v5Rr=parseFloat(b.getAttribute("data-rr"));$("v5TgtK").textContent=v5Rr.toFixed(1)+"R 目标";renderV5Plan();};
 });
+/* ---------- 财务自动拉取（东方财富数据中心 RPT_LICO_FN_CPD） ---------- */
+function qdateLabel(q){
+  var m=/^(\d{4})Q(\d)$/.exec(q||"");
+  if(!m)return q||"";
+  return m[1]+"年"+(["","一季报","半年报","三季报","年报"])[parseInt(m[2],10)];
+}
+function fetchFin(code){
+  var cols="SECURITY_CODE,REPORTDATE,QDATE,YSTZ,SJLTZ,WEIGHTAVG_ROE,BASIC_EPS,MGJYXJJE";
+  var url="https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_LICO_FN_CPD&columns="+cols
+    +"&filter="+encodeURIComponent('(SECURITY_CODE="'+code+'")')
+    +"&pageNumber=1&pageSize=1&sortColumns=REPORTDATE&sortTypes=-1";
+  return fetch(url).then(function(r){return r.json();}).then(function(j){
+    var d=j&&j.result&&j.result.data&&j.result.data[0];
+    if(!d||d.YSTZ===null||d.YSTZ===undefined)return null;
+    return {reportDate:String(d.REPORTDATE||"").slice(0,10),qdate:d.QDATE||"",
+      rev:d.YSTZ,prof:d.SJLTZ,roe:d.WEIGHTAVG_ROE,eps:d.BASIC_EPS,ocf:d.MGJYXJJE};
+  }).catch(function(){return null;});
+}
+function setFin(id,v){
+  $(id).value=(v===null||v===undefined||isNaN(v))?"":(Math.round(v*100)/100);
+}
+function pct2(v){return (v===null||v===undefined||isNaN(v))?"—":(Math.round(v*100)/100).toFixed(2)+"%";}
+function num2(v){return (v===null||v===undefined||isNaN(v))?"—":(Math.round(v*100)/100).toFixed(2);}
+function updateFinAvail(){
+  var n=0;["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(k){if($(k).value!=="")n++;});
+  $("v5FinAvail").textContent=n;
+}
 ["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(id){
-  $(id).addEventListener("input",function(){
-    var n=0;["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(k){if($(k).value!=="")n++;});
-    $("v5FinAvail").textContent=n;
-  });
+  $(id).addEventListener("input",updateFinAvail);
 });
 $("v5AnalyzeBtn").onclick=function(){
   var code=($("v5Code").value||"").trim();
@@ -1267,15 +1297,28 @@ $("v5AnalyzeBtn").onclick=function(){
   Promise.all([
     qqQuote([{mkt:mkt,code:code}]).catch(function(){return {};}),
     sinaKline(sinaSym(code),350),
-    marketCtx()
+    marketCtx(),
+    fetchFin(code)
   ]).then(function(rs){
-    var q=rs[0][code]||{},rows=rs[1],m=rs[2];
+    var q=rs[0][code]||{},rows=rs[1],m=rs[2],fin=rs[3];
     var t=calcTech(rows);
     if(!t)throw new Error("K 线数据不足（需 60 根以上），该代码可能有误或接口异常。");
     v5LastT=t;v5LastPrice=!isNaN(q.price)?q.price:t.price;
     var name=q.name||code;
     $("v5Title").textContent=name+"（"+code+"）";
-    $("v5Cap").textContent="K 线更新至 "+t.lastDate+"（新浪前复权口径）；行情快照为腾讯接口；财务请按巨潮公告手动填写。";
+    $("v5Cap").textContent="K 线更新至 "+t.lastDate+"（新浪前复权口径）；行情快照为腾讯接口；财务见下方自动拉取结果。";
+    if(fin){
+      setFin("v5fRev",fin.rev);setFin("v5fProf",fin.prof);setFin("v5fRoe",fin.roe);
+      setFin("v5fEps",fin.eps);setFin("v5fOcf",fin.ocf);
+      updateFinAvail();
+      $("v5FinSrc").textContent="财务已自动填充：东方财富数据中心，报告期 "+fin.reportDate+"（"+qdateLabel(fin.qdate)+"）；净利润同比为归母口径，V1.1 以扣非为准，需结合巨潮公告核对。可手动修改。";
+      var ca=$("v5CaLine");
+      ca.style.display="";
+      ca.textContent="C/A 参考（V1.1 口径提示）：营收同比 "+pct2(fin.rev)+" · 净利润同比 "+pct2(fin.prof)+"（归母）；每股经营现金流 "+num2(fin.ocf)+" 元 vs EPS "+num2(fin.eps)+" 元。单季数据仅作参考，V1.1 要求连续两季加速且以扣非为准。";
+    }else{
+      $("v5FinSrc").textContent="财务自动拉取失败（该股暂无报告期数据或网络异常），请按巨潮公告手动填写。";
+      $("v5CaLine").style.display="none";
+    }
     $("v5Price").textContent=fmtNum(v5LastPrice);
     $("v5Pct").textContent=(q.pct===undefined||isNaN(q.pct))?DASH:(q.pct>=0?"+":"")+q.pct.toFixed(2)+"%";
     $("v5Mkt").textContent=m.mode;
@@ -1286,16 +1329,19 @@ $("v5AnalyzeBtn").onclick=function(){
     $("v5ma200").textContent=fmtNum(t.ma200);
     $("v5volr").textContent=isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x";
     var kv=[["Stage 2 趋势",t.stage2?"是":"否"],["20 日突破",t.breakout20?"是":"否"],
-      ["接近 120 日高点（≥85%）",t.nearhigh?"是":"否"],["20 日收益",fmtPct(t.ret20)],
-      ["60 日收益",fmtPct(t.ret60)],["120 日收益",fmtPct(t.ret120)]];
+      ["55 日突破",t.breakout55?"是":"否"],
+      ["接近 250 日高点（≥85%）",t.nearhigh?"是":"否"],["20 日收益",fmtPct(t.ret20)],
+      ["60 日收益",fmtPct(t.ret60)],["120 日收益",fmtPct(t.ret120)],
+      ["20 日最低",fmtNum(t.low20)],["落后区（V1.1 L 口径）",t.laggard?"是":"否"]];
     $("v5TechKv").innerHTML=kv.map(function(p){return '<div class="v5kv"><span class="k">'+p[0]+'</span><span class="v">'+p[1]+'</span></div>';}).join("");
     drawChart(t);
     renderV5Plan();
     var verdict,cls;
     if(m.mode==="防守"){verdict="市场防守：优先观望，降低新开仓风险。";cls="banner defend";}
-    else if(sc>=70&&t.stage2&&t.breakout20){verdict="趋势强且突破：进入候选，等待确认成交 / 回踩及风险收益合格。";cls="banner attack";}
+    else if(sc>=70&&t.stage2&&t.breakout55){verdict="趋势强且突破：进入候选，等待确认成交 / 回踩及风险收益合格。";cls="banner attack";}
     else if(sc>=45){verdict="趋势观察：等待更明确的突破、量能或回踩确认。";cls="banner careful";}
     else{verdict="暂不优先：趋势 / 量能条件不足，继续观察。";cls="banner careful";}
+    if(t.laggard)verdict+="（落后区：距 250 日高点超 30% 且 120 日收益为负，V1.1 不纳入。）";
     var vb=$("v5Verdict");vb.textContent=verdict;vb.className=cls;
     var n=0;["v5fRev","v5fProf","v5fRoe","v5fEps","v5fOcf"].forEach(function(k){if($(k).value!=="")n++;});
     vb.textContent+="（技术 "+sc+"/100；财务字段可用性 "+n+"/5）";
@@ -1309,7 +1355,7 @@ function renderV5Plan(){
   var t=v5LastT,price=v5LastPrice;
   var capital=parseFloat($("v5Cap2").value)||0;
   var stop=NaN;
-  if(!isNaN(t.low20)&&!isNaN(price))stop=Math.min(t.low20,price*0.92);
+  if(!isNaN(price))stop=price*0.925;
   var riskPer=(!isNaN(stop)&&!isNaN(price))?price-stop:NaN;
   var riskCash=capital*v5Risk/100;
   var shares=(!isNaN(riskPer)&&riskPer>0)?Math.floor(riskCash/riskPer/100)*100:0;
@@ -1389,7 +1435,7 @@ $("v5ScanBtn").onclick=function(){
       sinaKline(sinaSym(r.code),250).then(function(kl){
         var t=calcTech(kl);
         if(t)out.push({code:r.code,name:r.name,amt:r.amt,score:techScore(t),stage2:t.stage2?"是":"否",
-          brk:t.breakout20?"是":"否",near:t.nearhigh?"是":"否",
+          brk:t.breakout55?"是":"否",near:t.nearhigh?"是":"否",
           volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
           ret60:isNaN(t.ret60)?DASH:(t.ret60*100).toFixed(2)+"%",price:t.price});
       }).catch(function(){}).finally(function(){
@@ -1408,7 +1454,7 @@ $("v5ScanBtn").onclick=function(){
       $("v5CsvBtn").style.display=out.length?"":"none";
       $("v5CsvBtn").onclick=function(){downloadCsv(indName+"_扫描.csv",sectorRows,
         ["code","name","score","stage2","brk","near","volr","ret60","price"],
-        ["代码","名称","技术评分","Stage2","20日突破","近高位","20日量比","60日收益%","最新价"]);};
+        ["代码","名称","技术评分","Stage2","55日突破","近高位","50日量比","60日收益%","最新价"]);};
       btn.disabled=false;btn.textContent="扫描行业强势股";
       setTimeout(function(){$("v5ProgWrap").style.display="none";},600);
     }
@@ -1436,7 +1482,7 @@ $("v5CmpBtn").onclick=function(){
       sinaKline(sinaSym(c),350).then(function(kl){
         var t=calcTech(kl),q=qmap[c]||{};
         if(t)out.push({code:c,name:q.name||"",score:techScore(t),stage2:t.stage2?"是":"否",
-          brk:t.breakout20?"是":"否",volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
+          brk:t.breakout55?"是":"否",volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
           ret60:isNaN(t.ret60)?DASH:(t.ret60*100).toFixed(2)+"%",
           price:!isNaN(q.price)?q.price:t.price});
         else out.push({code:c,name:q.name||"",score:DASH,stage2:DASH,brk:DASH,volr:DASH,ret60:DASH,price:DASH,err:"K线不足"});
@@ -1453,7 +1499,7 @@ $("v5CmpBtn").onclick=function(){
       $("v5CmpCsvBtn").style.display=out.length?"":"none";
       $("v5CmpCsvBtn").onclick=function(){downloadCsv("股票比较.csv",cmpRows,
         ["code","name","score","stage2","brk","volr","ret60","price"],
-        ["代码","名称","技术评分","Stage2","20日突破","20日量比","60日收益%","最新价"]);};
+        ["代码","名称","技术评分","Stage2","55日突破","50日量比","60日收益%","最新价"]);};
       btn.disabled=false;btn.textContent="比较股票";
     }
     next();

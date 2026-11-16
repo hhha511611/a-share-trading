@@ -125,10 +125,10 @@
      "close": 208.6,
      "pct": -4.22,
      "turnover": 3.12,
-     "turnover_pct": 58.0,
+     "turnover_pct": 67.6,
      "amount": 28.08,
      "amount_share": 0.19,
-     "amount_share_pct": 82.0,
+     "amount_share_pct": 84.8,
      "margin_pct": null,
      "margin_date": null,
      "status": "正常",
@@ -138,18 +138,18 @@
     {
      "code": "688018",
      "name": "乐鑫科技",
-     "close": null,
-     "pct": null,
-     "turnover": null,
-     "turnover_pct": null,
-     "amount": null,
-     "amount_share": null,
-     "amount_share_pct": null,
+     "close": 152.9,
+     "pct": -5.03,
+     "turnover": 4.7,
+     "turnover_pct": 87.2,
+     "amount": 17.11,
+     "amount_share": 0.12,
+     "amount_share_pct": 94.8,
      "margin_pct": null,
      "margin_date": null,
-     "status": "数据不全",
-     "n": 0,
-     "note": "当日 K 线未取到"
+     "status": "观察",
+     "n": 250,
+     "note": "融资分位待接通"
     },
     {
      "code": "688099",
@@ -251,5 +251,5 @@
   }
  ],
  "updated": "2026-11-16",
- "generated_at_beijing": "2026-11-16 21:06"
+ "generated_at_beijing": "2026-11-16 21:27"
 }

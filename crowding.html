@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>拥挤度附带表</title>
+<meta name="theme-color" content="#d32f2f">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#fff;color:#222;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  .wrap{max-width:480px;margin:0 auto;padding:12px 12px 48px}
+  h1{font-size:22px;margin:6px 0 2px}
+  h2{font-size:17px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid #eee}
+  .caption{font-size:12px;color:#888;margin:2px 0 4px}
+  a{color:#1677ff}
+  .banner{border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
+  .banner.warn{background:#fff8e8;border:1px solid #f0dcae;color:#8a6d1a}
+  .banner.info{background:#f0f5ff;border:1px solid #c2d8ff;color:#1d4fa3}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #eee;border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+  th,td{padding:8px 8px;text-align:right;border-bottom:1px solid #f0f0f0}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#fafbfc;color:#666;font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;min-width:52px;text-align:center;padding:3px 8px;border-radius:20px;font-size:12px;font-weight:600}
+  .b-crowded{background:#fdeaea;color:#b02a2a}
+  .b-watch{background:#fff8e8;color:#8a6d1a}
+  .b-normal{background:#eef7ee;color:#1e7a1e}
+  .b-nodata{background:#f0f2f5;color:#999}
+  .num{font-variant-numeric:tabular-nums}
+  .hot{color:#b02a2a;font-weight:700}
+  .grid7{font-size:11px}
+  .grid7 th,.grid7 td{padding:6px 3px;text-align:center}
+  .grid7 th:first-child,.grid7 td:first-child{text-align:left;padding-left:8px}
+  .dot{display:inline-block;width:20px;height:20px;line-height:20px;border-radius:50%;font-size:11px;font-weight:700}
+  .d-crowded{background:#fdeaea;color:#b02a2a}
+  .d-watch{background:#fff8e8;color:#8a6d1a}
+  .d-normal{background:#eef7ee;color:#1e7a1e}
+  .d-nodata{background:#f0f2f5;color:#bbb}
+  details{margin-top:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px}
+  summary{font-size:14px;font-weight:600;cursor:pointer}
+  details p,details li{font-size:13px;color:#444}
+  .note{font-size:12px;color:#999;margin-top:8px}
+  .err{background:#fdeaea;border:1px solid #f3b8b8;color:#b02a2a;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>拥挤度附带表</h1>
+  <div class="caption">观察口径 · 不指方向 · 不构成买卖建议 · <a href="index.html">回 A股交易首页</a></div>
+  <div class="caption" id="dataDate">数据日期：加载中…</div>
+  <div class="banner warn" id="staleBanner" style="display:none"></div>
+  <div class="err" id="loadError"></div>
+
+  <h2>当日分位（250 日窗口）</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>股票</th><th>换手分位</th><th>成交占比分位</th><th>融资分位</th><th>状态</th></tr></thead>
+    <tbody id="mainRows"><tr><td colspan="5" style="text-align:left;color:#999">加载中…</td></tr></tbody>
+  </table></div>
+  <div class="caption">分位 = 当日值在过去 250 个交易日（含当日）中的百分位；≥90% 标红。融资分位待接通两融数据通道，暂显示 —。</div>
+
+  <h2>近 7 日状态</h2>
+  <div class="table-wrap"><table class="grid7" id="grid7"></table></div>
+  <div class="caption">挤 = 拥挤（≥2 项 ≥90%），观 = 观察（仅 1 项 ≥90%），正 = 正常，缺 = 数据不全。</div>
+
+  <details>
+    <summary>口径与边界</summary>
+    <p>三项指标（只用日频公开数据）：①换手率 250 日分位；②成交额占全市场比重 250 日分位（分母 = 上证 + 深证当日总成交额）；③融资余额 ÷ 流通市值分位（T+1，待接通）。</p>
+    <p>判定：3 项中 ≥2 项 ≥90% 记拥挤；仅 1 项 ≥90% 记观察。融资分位缺失时按其余两项判定（两项均 ≥90% 才记拥挤）。90% / 95% 分位是经验惯例，没有理论最优值。</p>
+    <p>拥挤度是脆弱性指标，不是方向指标：只说明反转时踩踏风险大、波动会放大，不说明明天涨还是跌。测拥挤要在反转前一日收盘测，反转当天的放量是踩踏本身，不能反推之前挤不挤。</p>
+    <p>边界：本表是 16:16 扫描的附带观察表，不进入 CAN SLIM V1.1 执行层，不改任何阈值，不影响 20 笔验证计数与 A/B/C 档判定，不作买卖信号。基金持仓是季频慢变量，不拼进日频表。</p>
+  </details>
+  <div class="note" id="footNote"></div>
+</div>
+<script>
+(function(){
+  var STATUS = {"拥挤":["b-crowded","挤","d-crowded"],"观察":["b-watch","观","d-watch"],"正常":["b-normal","正","d-normal"],"数据不全":["b-nodata","缺","d-nodata"]};
+  function bjToday(){
+    return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Shanghai"});
+  }
+  function bjNowHM(){
+    return new Date().toLocaleTimeString("en-GB",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit"});
+  }
+  function fmt(v, suffix){
+    if(v === null || v === undefined) return "—";
+    return v.toFixed(1) + (suffix || "");
+  }
+  function cellPct(v){
+    if(v === null || v === undefined) return "—";
+    var cls = v >= 90 ? "num hot" : "num";
+    return '<span class="'+cls+'">'+v.toFixed(1)+'</span>';
+  }
+  fetch("data/crowding.json",{cache:"no-store"}).then(function(r){
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    return r.json();
+  }).then(function(data){
+    var days = data.days || [];
+    document.getElementById("footNote").textContent =
+      "窗口 250 日 · 每日收盘后 15:45 更新 · 生成时间：" + (data.generated_at_beijing || "—");
+    if(!days.length || !data.updated){
+      document.getElementById("dataDate").textContent = "数据日期：暂无（首张表在下一个交易日收盘后生成）";
+      document.getElementById("mainRows").innerHTML = '<tr><td colspan="5" style="text-align:left;color:#999">暂无数据，首张表在下一个交易日 15:45 后生成。</td></tr>';
+      document.getElementById("grid7").innerHTML = "";
+      return;
+    }
+    var latest = days[days.length-1];
+    document.getElementById("dataDate").textContent = "数据日期：" + data.updated + "（收盘）";
+    var today = bjToday();
+    var dow = new Date().toLocaleDateString("en-US",{timeZone:"Asia/Shanghai",weekday:"short"});
+    var isWeekend = (dow === "Sat" || dow === "Sun");
+    if(data.updated !== today && !isWeekend && bjNowHM() >= "16:00"){
+      var b = document.getElementById("staleBanner");
+      b.style.display = "block";
+      b.textContent = "今日表尚未更新，显示的是 " + data.updated + " 的数据（可能是数据源延迟，16:16 扫描日志会注明）。";
+    }
+    var html = "";
+    latest.rows.forEach(function(r){
+      var st = STATUS[r.status] || STATUS["数据不全"];
+      html += "<tr><td>"+r.name+"<br><span style='color:#999;font-size:11px'>"+r.code+" · "+(r.pct===null?"—":(r.pct>0?"+":"")+r.pct.toFixed(2)+"%")+"</span></td>"
+        + "<td>"+cellPct(r.turnover_pct)+"</td>"
+        + "<td>"+cellPct(r.amount_share_pct)+"</td>"
+        + "<td>"+cellPct(r.margin_pct)+"</td>"
+        + '<td><span class="badge '+st[0]+'">'+r.status+"</span></td></tr>";
+    });
+    document.getElementById("mainRows").innerHTML = html;
+    // 近 7 日状态网格
+    var last7 = days.slice(-7);
+    var g = "<thead><tr><th>股票</th>";
+    last7.forEach(function(d){ g += "<th>"+d.date.slice(5)+"</th>"; });
+    g += "</tr></thead><tbody>";
+    (data.stocks || []).forEach(function(s){
+      g += "<tr><td>"+s.name+"</td>";
+      last7.forEach(function(d){
+        var row = null;
+        for(var i=0;i<d.rows.length;i++){ if(d.rows[i].code===s.code){ row=d.rows[i]; break; } }
+        var st = row ? (STATUS[row.status]||STATUS["数据不全"]) : STATUS["数据不全"];
+        g += '<td><span class="dot '+st[2]+'">'+st[1]+"</span></td>";
+      });
+      g += "</tr>";
+    });
+    g += "</tbody>";
+    document.getElementById("grid7").innerHTML = g;
+  }).catch(function(e){
+    var el = document.getElementById("loadError");
+    el.style.display = "block";
+    el.textContent = "数据加载失败（"+e.message+"），请稍后刷新重试。不显示过期数据。";
+    document.getElementById("mainRows").innerHTML = '<tr><td colspan="5" style="text-align:left;color:#999">加载失败。</td></tr>';
+  });
+})();
+</script>
+</body>
+</html>

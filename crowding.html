@@ -52,12 +52,12 @@
   <div class="banner warn" id="staleBanner" style="display:none"></div>
   <div class="err" id="loadError"></div>
 
-  <h2>当日分位（250 日窗口）</h2>
+  <h2>当日分位（滚动窗口）</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>股票</th><th>换手分位</th><th>成交占比分位</th><th>融资分位</th><th>状态</th></tr></thead>
     <tbody id="mainRows"><tr><td colspan="5" style="text-align:left;color:#999">加载中…</td></tr></tbody>
   </table></div>
-  <div class="caption">分位 = 当日值在过去 250 个交易日（含当日）中的百分位；≥90% 标红。融资分位待接通两融数据通道，暂显示 —。</div>
+  <div class="caption">分位 = 当日值在过去至多 250 个交易日（含当日）中的百分位，实际天数见页脚；≥90% 标红。融资分位待接通两融数据通道，暂显示 —。</div>
 
   <h2>近 7 日状态</h2>
   <div class="table-wrap"><table class="grid7" id="grid7"></table></div>
@@ -65,7 +65,7 @@
 
   <details>
     <summary>口径与边界</summary>
-    <p>三项指标（只用日频公开数据）：①换手率 250 日分位；②成交额占全市场比重 250 日分位（分母 = 上证 + 深证当日总成交额）；③融资余额 ÷ 流通市值分位（T+1，待接通）。</p>
+    <p>三项指标（只用日频公开数据）：①换手率滚动分位；②成交额占全市场比重滚动分位（窗口至多 250 日，实际天数见页脚；分母 = 上证 + 深证当日总成交额）；③融资余额 ÷ 流通市值分位（T+1，待接通）。</p>
     <p>判定：3 项中 ≥2 项 ≥90% 记拥挤；仅 1 项 ≥90% 记观察。融资分位缺失时按其余两项判定（两项均 ≥90% 才记拥挤）。90% / 95% 分位是经验惯例，没有理论最优值。</p>
     <p>拥挤度是脆弱性指标，不是方向指标：只说明反转时踩踏风险大、波动会放大，不说明明天涨还是跌。测拥挤要在反转前一日收盘测，反转当天的放量是踩踏本身，不能反推之前挤不挤。</p>
     <p>边界：本表是 16:16 扫描的附带观察表，不进入 CAN SLIM V1.1 执行层，不改任何阈值，不影响 20 笔验证计数与 A/B/C 档判定，不作买卖信号。基金持仓是季频慢变量，不拼进日频表。</p>
@@ -104,6 +104,12 @@
       return;
     }
     var latest = days[days.length-1];
+    var winDays = 0;
+    latest.rows.forEach(function(r){ if(r.n && r.n > winDays) winDays = r.n; });
+    if(winDays > 0){
+      document.getElementById("footNote").textContent =
+        "窗口 " + winDays + " 日（目标 250 日）· 每日收盘后 15:45 更新 · 生成时间：" + (data.generated_at_beijing || "—");
+    }
     document.getElementById("dataDate").textContent = "数据日期：" + data.updated + "（收盘）";
     var today = bjToday();
     var dow = new Date().toLocaleDateString("en-US",{timeZone:"Asia/Shanghai",weekday:"short"});

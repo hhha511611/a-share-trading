@@ -6,16 +6,18 @@
 口径见 ~/workspace/notes/交易拥挤度监测口径.md（用户 2026-11-16 定为 16:16 扫描的常态化附带表，
 观察口径，不进入 V1.1 执行层）。
 
-指标（各取过去 250 个交易日滚动百分位，含当日）：
-  1. 换手率分位：东财 K 线 turnover 字段直接给出。
+指标（各取过去至多 250 个交易日滚动百分位，含当日；实际天数记在行 n 字段）：
+  1. 换手率分位：同花顺 K 线 turnover 字段直接给出。
   2. 成交额占比分位：个股成交额 ÷（上证指数成交额 + 深证成指成交额），再取分位。
   3. 融资余额占比分位：v1 未接通两融数据通道，记 null（表里显示"—"，判定按其余两项）。
 判定：≥2 项 ≥90% 记"拥挤"；仅 1 项 ≥90% 记"观察"；两项均 <90% 记"正常"；
 可用指标不足 2 项记"数据不全"。百分位定义：≤ 当日值的天数 ÷ 窗口天数 × 100。
 失败不覆盖旧文件：任一环节拿不到当日收盘数据时不写文件、退出码 0 并打印原因；
 全量拉取失败时退出码 1（工作流不提交）。
-东财接口间歇性不可达：单只 5 次重试（45 秒超时，10/20/30/60 秒退避），
-第一遍失败的单只 30 秒后第二遍重拉；仍失败则该行记 null。
+数据源：同花顺 d.10jqka.com.cn v2 K 线（last.js + 目标年与上一年文件合并，
+去重后取最近 250 日；年文件缺失时窗口缩短，n 如实记录）。单只 5 次重试
+（45 秒超时，10/20/30/60 秒退避），第一遍失败的单只 30 秒后第二遍重拉；
+仍失败则该行记 null。
 补算过去某日：python fetch_crowding.py --date YYYY-MM-DD（同日行会被替换）。
 """
 import json
@@ -43,52 +45,83 @@ KEEP_DAYS = 60
 CLOSE_GUARD_HHMM = (15, 5)  # 北京时间 15:05 前不计算（防盘中误触发）
 
 
-def secid(code):
-    return ("1" if code[0] in "69" else "0") + "." + code
+def ths_code(code):
+    """同花顺代码：上证指数 000001 -> 1A0001，其余沿用 6 位代码。"""
+    return "1A0001" if code == "000001" else code
 
 
-def fetch_kline(code, beg):
-    """东财 push2his 日 K（前复权）。返回 [(date, close, pct, volume, amount, turnover)]，date 为 YYYY-MM-DD。"""
-    url = (
-        "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        "?secid=%s&klt=101&fqt=1&beg=%s&end=20500101"
-        "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
-        "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-        % (secid(code), beg)
-    )
+def _fetch_ths_chunk(code, chunk, attempts, backoff):
+    """拉取同花顺一个 K 线分片（last 或年份），返回原始 data 字符串；失败抛错。"""
+    url = "https://d.10jqka.com.cn/v2/line/hs_%s/01/%s.js" % (ths_code(code), chunk)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     last_err = None
-    for attempt in range(5):
+    for attempt in range(attempts):
         try:
             with urllib.request.urlopen(req, timeout=45) as r:
-                payload = json.loads(r.read().decode("utf-8", "ignore"))
-            break
+                text = r.read().decode("utf-8", "ignore")
+            if not text or text.lstrip().startswith("<"):
+                raise RuntimeError("返回 HTML 错误页（%s）" % chunk)
+            start = text.find("(")
+            end = text.rfind(")")
+            if start < 0 or end <= start:
+                raise RuntimeError("返回格式异常（%s）" % chunk)
+            payload = json.loads(text[start + 1:end])
+            data = payload.get("data")
+            if not data:
+                raise RuntimeError("分片无数据（%s）" % chunk)
+            return data
         except Exception as e:  # noqa: BLE001 - retry then surface
             last_err = e
-            if attempt < 4:
-                wait = (10, 20, 30, 60)[attempt]
-                print("WARN %s 第 %d 次拉取失败: %s，%d 秒后重试" % (code, attempt + 1, e, wait))
+            if attempt < attempts - 1:
+                wait = backoff[attempt] if attempt < len(backoff) else backoff[-1]
+                print("WARN %s/%s 第 %d 次拉取失败: %s，%d 秒后重试" % (code, chunk, attempt + 1, e, wait))
                 time.sleep(wait)
-    else:
-        raise RuntimeError("拉取 %s 失败: %s" % (code, last_err))
-    if payload.get("rc") != 0 or not payload.get("data") or not payload["data"].get("klines"):
-        raise RuntimeError("拉取 %s 返回异常 rc=%s" % (code, payload.get("rc")))
-    out = []
-    for line in payload["data"]["klines"]:
+    raise RuntimeError("拉取 %s/%s 失败: %s" % (code, chunk, last_err))
+
+
+def _parse_ths_rows(data):
+    """解析分片 data 字符串，返回 {date: (close, volume, amount, turnover)}，date 为 YYYY-MM-DD。
+    行格式：YYYYMMDD,开,高,低,收,成交量,成交额,换手率,..."""
+    out = {}
+    for line in data.split(";"):
         parts = line.split(",")
-        if len(parts) < 7:
+        if len(parts) < 8:
             continue
         try:
-            date = parts[0]
-            close = float(parts[2])
-            pct = float(parts[8])
+            raw_date = parts[0].strip()
+            date = "%s-%s-%s" % (raw_date[0:4], raw_date[4:6], raw_date[6:8])
+            close = float(parts[4])
             volume = float(parts[5])
             amount = float(parts[6])
-            turnover = float(parts[10]) if len(parts) > 10 and parts[10] != "" else None
-        except ValueError:
+            turnover = float(parts[7]) if parts[7].strip() != "" else None
+        except (ValueError, IndexError):
             continue
+        out[date] = (close, volume, amount, turnover)
+    return out
+
+
+def fetch_kline(code, today):
+    """同花顺日 K：last.js + 目标年与上一年文件合并，去重排序。
+    返回 [(date, close, pct, volume, amount, turnover)]，pct 由相邻收盘价算出。
+    last.js 必取（5 次重试）；年文件尽力取，缺失只缩短窗口，不整只失败。"""
+    year = int(today[:4])
+    merged = {}
+    merged.update(_parse_ths_rows(_fetch_ths_chunk(code, "last", 5, (10, 20, 30, 60))))
+    for y in (year, year - 1):
+        try:
+            merged.update(_parse_ths_rows(_fetch_ths_chunk(code, str(y), 3, (5, 10, 20))))
+        except Exception as e:  # noqa: BLE001 - 年文件失败只记警告
+            print("WARN %s 年文件 %d 未取到（窗口缩短）: %s" % (code, y, e))
+    dates = sorted(merged)
+    out = []
+    prev_close = None
+    for date in dates:
+        close, volume, amount, turnover = merged[date]
+        pct = 0.0 if prev_close is None or prev_close == 0 else (close / prev_close - 1.0) * 100.0
         out.append((date, close, pct, volume, amount, turnover))
-    out.sort(key=lambda x: x[0])
+        prev_close = close
+    if not out:
+        raise RuntimeError("拉取 %s 无有效 K 线" % code)
     return out
 
 
@@ -205,26 +238,25 @@ def main():
     if backfill is None and (now.hour, now.minute) < CLOSE_GUARD_HHMM:
         print("未到收盘后 15:05（北京时间 %s），不计算。" % now.strftime("%H:%M"))
         return 0
-    beg = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=420)).strftime("%Y%m%d")
     base = os.path.dirname(os.path.abspath(__file__))
     out_path = os.path.join(base, "data", "crowding.json")
 
     stock_series = {}
     for code, _ in STOCKS:
         try:
-            stock_series[code] = fetch_kline(code, beg)
+            stock_series[code] = fetch_kline(code, today)
         except Exception as e:  # noqa: BLE001 - 单只失败不阻塞整表
             print("WARN %s: %s" % (code, e))
             stock_series[code] = []
         time.sleep(2)  # 错峰，避免连续请求被限流
-    # 第二遍：第一遍失败的单只在暂停后重拉一次（东财接口间歇性不可达）
+    # 第二遍：第一遍失败的单只在暂停后重拉一次（数据源间歇性不可达）
     failed = [c for c, s in stock_series.items() if not s]
     if failed:
         print("第一遍失败 %d 只，30 秒后第二遍重拉：%s" % (len(failed), ",".join(failed)))
         time.sleep(30)
         for code in failed:
             try:
-                stock_series[code] = fetch_kline(code, beg)
+                stock_series[code] = fetch_kline(code, today)
             except Exception as e:  # noqa: BLE001
                 print("WARN %s 第二遍仍失败: %s" % (code, e))
     if not any(stock_series.values()):
@@ -239,7 +271,7 @@ def main():
     index_amounts = {}
     for code, _ in INDICES:
         try:
-            for date, _c, _p, _v, amount, _t in fetch_kline(code, beg):
+            for date, _c, _p, _v, amount, _t in fetch_kline(code, today):
                 if date <= today:
                     index_amounts[date] = index_amounts.get(date, 0.0) + amount
         except Exception as e:  # noqa: BLE001 - 指数失败则指标 2 记 null

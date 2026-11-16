@@ -14,6 +14,9 @@
 可用指标不足 2 项记"数据不全"。百分位定义：≤ 当日值的天数 ÷ 窗口天数 × 100。
 失败不覆盖旧文件：任一环节拿不到当日收盘数据时不写文件、退出码 0 并打印原因；
 全量拉取失败时退出码 1（工作流不提交）。
+东财接口间歇性不可达：单只 5 次重试（45 秒超时，10/20/30/60 秒退避），
+第一遍失败的单只 30 秒后第二遍重拉；仍失败则该行记 null。
+补算过去某日：python fetch_crowding.py --date YYYY-MM-DD（同日行会被替换）。
 """
 import json
 import os
@@ -55,14 +58,17 @@ def fetch_kline(code, beg):
     )
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     last_err = None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urllib.request.urlopen(req, timeout=45) as r:
                 payload = json.loads(r.read().decode("utf-8", "ignore"))
             break
         except Exception as e:  # noqa: BLE001 - retry then surface
             last_err = e
-            time.sleep(5 * (attempt + 1))
+            if attempt < 4:
+                wait = (10, 20, 30, 60)[attempt]
+                print("WARN %s 第 %d 次拉取失败: %s，%d 秒后重试" % (code, attempt + 1, e, wait))
+                time.sleep(wait)
     else:
         raise RuntimeError("拉取 %s 失败: %s" % (code, last_err))
     if payload.get("rc") != 0 or not payload.get("data") or not payload["data"].get("klines"):
@@ -186,15 +192,20 @@ def selftest():
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    args = sys.argv[1:]
+    if "--selftest" in args:
         selftest()
         return 0
+    backfill = None
+    if "--date" in args:
+        backfill = args[args.index("--date") + 1]
+        datetime.strptime(backfill, "%Y-%m-%d")  # 格式校验，非法则报错退出
     now = datetime.now(BJ)
-    if (now.hour, now.minute) < CLOSE_GUARD_HHMM:
+    today = backfill or now.strftime("%Y-%m-%d")
+    if backfill is None and (now.hour, now.minute) < CLOSE_GUARD_HHMM:
         print("未到收盘后 15:05（北京时间 %s），不计算。" % now.strftime("%H:%M"))
         return 0
-    today = now.strftime("%Y-%m-%d")
-    beg = (now - timedelta(days=420)).strftime("%Y%m%d")
+    beg = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=420)).strftime("%Y%m%d")
     base = os.path.dirname(os.path.abspath(__file__))
     out_path = os.path.join(base, "data", "crowding.json")
 
@@ -205,21 +216,35 @@ def main():
         except Exception as e:  # noqa: BLE001 - 单只失败不阻塞整表
             print("WARN %s: %s" % (code, e))
             stock_series[code] = []
+        time.sleep(2)  # 错峰，避免连续请求被限流
+    # 第二遍：第一遍失败的单只在暂停后重拉一次（东财接口间歇性不可达）
+    failed = [c for c, s in stock_series.items() if not s]
+    if failed:
+        print("第一遍失败 %d 只，30 秒后第二遍重拉：%s" % (len(failed), ",".join(failed)))
+        time.sleep(30)
+        for code in failed:
+            try:
+                stock_series[code] = fetch_kline(code, beg)
+            except Exception as e:  # noqa: BLE001
+                print("WARN %s 第二遍仍失败: %s" % (code, e))
     if not any(stock_series.values()):
         print("ERROR: 12 只全部拉取失败，不写文件。")
         return 1
-    latest = max((s[-1][0] for s in stock_series.values() if s), default=None)
-    if latest != today:
-        print("最新 K 线日期为 %s，今日（%s）收盘数据未更新，不写文件。" % (latest, today))
+    # 截断到目标日期（--date 补算过去某日时，窗口以该日收盘为准）
+    stock_series = {c: [d for d in s if d[0] <= today] for c, s in stock_series.items()}
+    if not any(s and s[-1][0] == today for s in stock_series.values()):
+        print("目标日期 %s 的收盘数据未取到，不写文件。" % today)
         return 0
 
     index_amounts = {}
     for code, _ in INDICES:
         try:
             for date, _c, _p, _v, amount, _t in fetch_kline(code, beg):
-                index_amounts[date] = index_amounts.get(date, 0.0) + amount
+                if date <= today:
+                    index_amounts[date] = index_amounts.get(date, 0.0) + amount
         except Exception as e:  # noqa: BLE001 - 指数失败则指标 2 记 null
             print("WARN 指数 %s: %s" % (code, e))
+        time.sleep(2)
 
     rows = compute_day(stock_series, index_amounts, today)
 
@@ -235,6 +260,7 @@ def main():
         except (json.JSONDecodeError, OSError) as e:
             print("WARN 旧文件读取失败，按空历史处理: %s" % e)
     data["days"].append({"date": today, "rows": rows})
+    data["days"].sort(key=lambda d: d["date"])
     data["days"] = data["days"][-KEEP_DAYS:]
     data["updated"] = today
     data["generated_at_beijing"] = now.strftime("%Y-%m-%d %H:%M")

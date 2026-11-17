@@ -27,6 +27,7 @@
   .b-watch{background:#fff8e8;color:#8a6d1a}
   .b-normal{background:#eef7ee;color:#1e7a1e}
   .b-nodata{background:#f0f2f5;color:#999}
+  .dyntag{display:inline-block;font-size:10px;color:#1d4fa3;background:#e8f0fe;border-radius:8px;padding:1px 6px;margin-left:4px;font-weight:600}
   .num{font-variant-numeric:tabular-nums}
   .hot{color:#b02a2a;font-weight:700}
   .grid7{font-size:11px}
@@ -68,6 +69,7 @@
     <p>三项指标（只用日频公开数据）：①换手率滚动分位；②成交额占全市场比重滚动分位（窗口至多 250 日，实际天数见页脚；分母 = 上证 + 深证当日总成交额）；③融资余额 ÷ 流通市值分位（T+1，待接通）。</p>
     <p>判定：3 项中 ≥2 项 ≥90% 记拥挤；仅 1 项 ≥90% 记观察。融资分位缺失时按其余两项判定（两项均 ≥90% 才记拥挤）。90% / 95% 分位是经验惯例，没有理论最优值。</p>
     <p>拥挤度是脆弱性指标，不是方向指标：只说明反转时踩踏风险大、波动会放大，不说明明天涨还是跌。测拥挤要在反转前一日收盘测，反转当天的放量是踩踏本身，不能反推之前挤不挤。</p>
+    <p>宇宙：8 只 V1.1 扫描池固定 + 当日换手率前 4 名动态（候选为产业跟踪筛选池 46 家 + 光模块原型 4 家，2026-11-17 起）。动态行带「动态」标记，名单每日轮换；近 7 日网格中某只动态股在某日显示「缺」，表示当日未入选。</p>
     <p>边界：本表是 16:16 扫描的附带观察表，不进入 CAN SLIM V1.1 执行层，不改任何阈值，不影响 20 笔验证计数与 A/B/C 档判定，不作买卖信号。基金持仓是季频慢变量，不拼进日频表。</p>
   </details>
   <div class="note" id="footNote"></div>
@@ -122,7 +124,8 @@
     var html = "";
     latest.rows.forEach(function(r){
       var st = STATUS[r.status] || STATUS["数据不全"];
-      html += "<tr><td>"+r.name+"<br><span style='color:#999;font-size:11px'>"+r.code+" · "+(r.pct===null?"—":(r.pct>0?"+":"")+r.pct.toFixed(2)+"%")+"</span></td>"
+      var tag = r.slot === "dynamic" ? '<span class="dyntag">动态</span>' : "";
+      html += "<tr><td>"+r.name+tag+"<br><span style='color:#999;font-size:11px'>"+r.code+" · "+(r.pct===null?"—":(r.pct>0?"+":"")+r.pct.toFixed(2)+"%")+"</span></td>"
         + "<td>"+cellPct(r.turnover_pct)+"</td>"
         + "<td>"+cellPct(r.amount_share_pct)+"</td>"
         + "<td>"+cellPct(r.margin_pct)+"</td>"
@@ -134,11 +137,22 @@
     var g = "<thead><tr><th>股票</th>";
     last7.forEach(function(d){ g += "<th>"+d.date.slice(5)+"</th>"; });
     g += "</tr></thead><tbody>";
-    (data.stocks || []).forEach(function(s){
-      g += "<tr><td>"+s.name+"</td>";
+    // 近 7 日状态网格：行集合取 7 日内出现过的所有代码（最新一日在前，其余按首次出现补齐），
+    // 动态轮换的股票在未入选的日期显示「缺」。
+    var order = [];
+    var names = {};
+    last7.forEach(function(d){
+      d.rows.forEach(function(r){ if(names[r.code] === undefined){ names[r.code] = r.name; } });
+    });
+    latest.rows.forEach(function(r){ if(order.indexOf(r.code) < 0) order.push(r.code); });
+    last7.forEach(function(d){
+      d.rows.forEach(function(r){ if(order.indexOf(r.code) < 0) order.push(r.code); });
+    });
+    order.forEach(function(code){
+      g += "<tr><td>"+names[code]+"</td>";
       last7.forEach(function(d){
         var row = null;
-        for(var i=0;i<d.rows.length;i++){ if(d.rows[i].code===s.code){ row=d.rows[i]; break; } }
+        for(var i=0;i<d.rows.length;i++){ if(d.rows[i].code===code){ row=d.rows[i]; break; } }
         var st = row ? (STATUS[row.status]||STATUS["数据不全"]) : STATUS["数据不全"];
         g += '<td><span class="dot '+st[2]+'">'+st[1]+"</span></td>";
       });

@@ -6,6 +6,11 @@
 口径见 ~/workspace/notes/交易拥挤度监测口径.md（用户 2026-11-16 定为 16:16 扫描的常态化附带表，
 观察口径，不进入 V1.1 执行层）。
 
+宇宙（2026-11-17 起动态规则，用户定）：8 只 V1.1 扫描池固定 + 当日换手率前 4 名动态
+（候选 = 产业跟踪筛选池 46 家 + 光模块原型 4 家，剔除固定 8 只后按当日换手率排序取前 4，
+并列按代码升序）。候选名单是筛选池文件的快照，池内名单变化时须同步更新本脚本
+（周更任务注明、主对话推送）。
+
 指标（各取过去至多 250 个交易日滚动百分位，含当日；实际天数记在行 n 字段）：
   1. 换手率分位：同花顺 K 线 turnover 字段直接给出。
   2. 成交额占比分位：个股成交额 ÷（上证指数成交额 + 深证成指成交额），再取分位。
@@ -29,14 +34,47 @@ from datetime import datetime, timedelta, timezone
 
 BJ = timezone(timedelta(hours=8))
 
-# 12 只：8 只 V1.1 扫描池 + 4 只光模块（本表的起因案例），固定名单，改名单须用户定。
-STOCKS = [
+# 宇宙（2026-11-17 起动态规则，用户定）：8 只 V1.1 扫描池固定 + 当日换手率前 4 名动态。
+# 候选 = 产业跟踪筛选池 46 家（2026-11-17 快照，48 个条目去重；铖昌科技、中科创达各跨两板块）
+#       + 光模块原型 4 家；与固定 8 只重叠的（绿的谐波、瑞芯微）只计固定位。
+# 池内名单变化时须同步更新 CANDIDATES（周更任务注明、主对话推送）。
+FIXED = [
     ("601689", "拓普集团"), ("601100", "恒立液压"), ("603119", "浙江荣泰"),
     ("688017", "绿的谐波"), ("603893", "瑞芯微"), ("688018", "乐鑫科技"),
     ("688099", "晶晨股份"), ("688521", "芯原股份"),
+]
+CANDIDATES = [
+    # 固态电池 6
+    ("300750", "宁德时代"), ("300450", "先导智能"), ("002709", "天赐材料"),
+    ("300285", "国瓷材料"), ("002074", "国轩高科"), ("300014", "亿纬锂能"),
+    # 人形机器人 5
+    ("688836", "宇树科技"), ("688017", "绿的谐波"), ("002472", "双环传动"),
+    ("688160", "步科股份"), ("603662", "柯力传感"),
+    # 商业航天 4
+    ("002025", "航天电器"), ("001270", "铖昌科技"), ("600118", "中国卫星"),
+    ("688270", "ST 臻镭科技"),
+    # 6G 4（铖昌科技已计入商业航天）
+    ("000063", "中兴通讯"), ("688182", "灿勤科技"), ("002281", "光迅科技"),
+    ("300136", "信维通信"),
+    # 物理 AI 6
+    ("603893", "瑞芯微"), ("002415", "海康威视"), ("300124", "汇川技术"),
+    ("688322", "奥比中光"), ("688787", "海天瑞声"), ("300496", "中科创达"),
+    # AI 制药 4
+    ("603259", "药明康德"), ("688222", "成都先导"), ("301080", "百普赛斯"),
+    ("688202", "美迪西"),
+    # AI 应用 5（中科创达已计入物理 AI）
+    ("688111", "金山办公"), ("300033", "同花顺"), ("300418", "昆仑万维"),
+    ("300058", "蓝色光标"), ("600588", "用友网络"),
+    # 半导体设备零部件 12
+    ("300395", "菲利华"), ("688409", "富创精密"), ("688652", "京仪装备"),
+    ("688195", "腾景科技"), ("300820", "英杰电气"), ("688502", "茂莱光学"),
+    ("003031", "中瓷电子"), ("300666", "江丰电子"), ("688596", "正帆科技"),
+    ("002222", "福晶科技"), ("688785", "恒运昌"), ("301717", "超纯应材"),
+    # 光模块原型 4（本表起因案例，现为候选、不再固定占位）
     ("300308", "中际旭创"), ("300502", "新易盛"), ("300394", "天孚通信"),
     ("002463", "沪电股份"),
 ]
+DYNAMIC_N = 4
 INDICES = [("000001", "上证指数"), ("399001", "深证成指")]
 
 WINDOW = 250
@@ -133,13 +171,34 @@ def pct_rank(series, today_value):
     return round(100.0 * sum(1 for v in series if v <= today_value) / n, 1)
 
 
-def compute_day(stock_series, index_amounts, today):
-    """stock_series: {code: [(date, close, pct, volume, amount, turnover)]}（已取窗口内）。
-    index_amounts: {date: 上证+深证当日成交额}。返回当日 rows。"""
-    rows = []
-    for code, name in STOCKS:
+def select_dynamic(stock_series, today, candidates=None):
+    """从候选里按当日换手率取前 DYNAMIC_N 名。须有当日 K 线且换手率非空；
+    固定 8 只不参与排名；并列按代码升序。返回 [(code, name)]。"""
+    if candidates is None:
+        candidates = CANDIDATES
+    fixed_codes = {c for c, _ in FIXED}
+    ranked = []
+    for code, name in candidates:
+        if code in fixed_codes:
+            continue
         series = stock_series.get(code, [])
-        row = {"code": code, "name": name, "close": None, "pct": None,
+        if not series or series[-1][0] != today:
+            continue
+        turnover = series[-1][5]
+        if turnover is None:
+            continue
+        ranked.append((turnover, code, name))
+    ranked.sort(key=lambda t: (-t[0], t[1]))
+    return [(code, name) for _, code, name in ranked[:DYNAMIC_N]]
+
+
+def compute_day(stock_series, index_amounts, today, selected):
+    """stock_series: {code: [(date, close, pct, volume, amount, turnover)]}（已取窗口内）。
+    index_amounts: {date: 上证+深证当日成交额}。selected: [(code, name, slot)]。返回当日 rows。"""
+    rows = []
+    for code, name, slot in selected:
+        series = stock_series.get(code, [])
+        row = {"code": code, "name": name, "slot": slot, "close": None, "pct": None,
                "turnover": None, "turnover_pct": None,
                "amount": None, "amount_share": None, "amount_share_pct": None,
                "margin_pct": None, "margin_date": None,
@@ -198,28 +257,47 @@ def compute_day(stock_series, index_amounts, today):
 
 
 def selftest():
-    """不联网的逻辑自检：百分位与判定。"""
+    """不联网的逻辑自检：百分位、判定与动态选股。"""
     # 250 天换手线性上升，当日为最大值 -> 100.0；当日为中位数 -> 约 50。
     series = [float(i) for i in range(1, 251)]
     assert pct_rank(series, 250.0) == 100.0, pct_rank(series, 250.0)
     assert abs(pct_rank(series, 125.0) - 50.0) < 0.5, pct_rank(series, 125.0)
-    # 构造一日数据：换手与占比双双 ≥90 -> 拥挤
     today = "2026-11-16"
     dates = ["2026-%02d-%02d" % (m, d) for m in range(1, 12) for d in range(1, 24)][:250]
     dates[-1] = today
+    # 固定 8 只：换手与占比双双 ≥90 -> 拥挤
     fake = {}
-    for code, _ in STOCKS:
+    for code, _ in FIXED:
         rows = []
         for i, dt in enumerate(dates):
             rows.append((dt, 10.0, 0.0, 100.0, 1e8 * (i + 1), 0.1 * (i + 1)))
         fake[code] = rows
+    # 候选 6 只换手率各异，验动态取前 4（000002/000006/000004/000001）
+    cand_codes = ["000001", "000002", "000003", "000004", "000005", "000006"]
+    cand_turns = [5.0, 9.0, 1.0, 7.0, 3.0, 8.0]
+    for code, turn in zip(cand_codes, cand_turns):
+        rows = []
+        for i, dt in enumerate(dates):
+            t = turn if dt == today else 0.5
+            rows.append((dt, 10.0, 0.0, 100.0, 1e8, t))
+        fake[code] = rows
     idx = {dt: 1e12 for dt in dates}
-    day_rows = compute_day(fake, idx, today)
+    picked = select_dynamic(fake, today, candidates=[(c, "候选" + c) for c in cand_codes])
+    assert [c for c, _ in picked] == ["000002", "000006", "000004", "000001"], picked
+    # 并列按代码升序：两只同为 9.0 时代码小的在前
+    fake["000007"] = [(dt, 10.0, 0.0, 100.0, 1e8, 9.0 if dt == today else 0.5) for dt in dates]
+    picked2 = select_dynamic(fake, today,
+                             candidates=[(c, "候选" + c) for c in cand_codes + ["000007"]])
+    assert [c for c, _ in picked2][:2] == ["000002", "000007"], picked2
+    # compute_day：固定 8 只全拥挤且 slot 正确
+    selected = [(c, n, "fixed") for c, n in FIXED]
+    day_rows = compute_day(fake, idx, today, selected)
     assert all(r["status"] == "拥挤" for r in day_rows), [r["status"] for r in day_rows]
     assert all(r["turnover_pct"] == 100.0 for r in day_rows)
+    assert all(r["slot"] == "fixed" for r in day_rows)
     # 当日 K 线缺失 -> 数据不全
     fake2 = {code: rows[:-1] for code, rows in fake.items()}
-    day_rows2 = compute_day(fake2, idx, today)
+    day_rows2 = compute_day(fake2, idx, today, selected)
     assert all(r["status"] == "数据不全" for r in day_rows2)
     print("selftest PASS")
 
@@ -241,8 +319,13 @@ def main():
     base = os.path.dirname(os.path.abspath(__file__))
     out_path = os.path.join(base, "data", "crowding.json")
 
+    fixed_codes = [c for c, _ in FIXED]
+    all_codes = []
+    for c, _ in FIXED + CANDIDATES:
+        if c not in all_codes:
+            all_codes.append(c)
     stock_series = {}
-    for code, _ in STOCKS:
+    for code in all_codes:
         try:
             stock_series[code] = fetch_kline(code, today)
         except Exception as e:  # noqa: BLE001 - 单只失败不阻塞整表
@@ -259,13 +342,13 @@ def main():
                 stock_series[code] = fetch_kline(code, today)
             except Exception as e:  # noqa: BLE001
                 print("WARN %s 第二遍仍失败: %s" % (code, e))
-    if not any(stock_series.values()):
-        print("ERROR: 12 只全部拉取失败，不写文件。")
+    if not any(stock_series.get(c) for c in fixed_codes):
+        print("ERROR: 固定 8 只全部拉取失败，不写文件。")
         return 1
     # 截断到目标日期（--date 补算过去某日时，窗口以该日收盘为准）
     stock_series = {c: [d for d in s if d[0] <= today] for c, s in stock_series.items()}
-    if not any(s and s[-1][0] == today for s in stock_series.values()):
-        print("目标日期 %s 的收盘数据未取到，不写文件。" % today)
+    if not any(stock_series.get(c) and stock_series[c][-1][0] == today for c in fixed_codes):
+        print("目标日期 %s 的固定池收盘数据未取到，不写文件。" % today)
         return 0
 
     index_amounts = {}
@@ -278,10 +361,20 @@ def main():
             print("WARN 指数 %s: %s" % (code, e))
         time.sleep(2)
 
-    rows = compute_day(stock_series, index_amounts, today)
+    dynamic = select_dynamic(stock_series, today)
+    selected = [(c, n, "fixed") for c, n in FIXED] + [(c, n, "dynamic") for c, n in dynamic]
+    rows = compute_day(stock_series, index_amounts, today, selected)
+    ranked_n = sum(1 for c in all_codes if c not in fixed_codes
+                   and stock_series.get(c) and stock_series[c][-1][0] == today
+                   and stock_series[c][-1][5] is not None)
 
-    data = {"version": 1, "window_days": WINDOW,
-            "stocks": [{"code": c, "name": n} for c, n in STOCKS],
+    data = {"version": 2, "window_days": WINDOW,
+            "stocks": [{"code": c, "name": n, "slot": s} for c, n, s in selected],
+            "universe": {"fixed": fixed_codes,
+                         "dynamic": [c for c, _ in dynamic],
+                         "dynamic_ranked_by": "当日换手率",
+                         "candidates_total": len(all_codes) - len(fixed_codes),
+                         "candidates_ranked": ranked_n},
             "days": []}
     if os.path.exists(out_path):
         try:
@@ -301,7 +394,9 @@ def main():
         json.dump(data, f, ensure_ascii=False, indent=1)
     os.replace(tmp_path, out_path)
     crowded = [r["name"] for r in rows if r["status"] == "拥挤"]
-    print("wrote %s: %d 只，拥挤 %d 只（%s）" % (today, len(rows), len(crowded), "、".join(crowded) or "无"))
+    print("wrote %s: %d 只（固定 8 + 动态 %s），拥挤 %d 只（%s）" % (
+        today, len(rows), "、".join(n for _, n in dynamic) or "无",
+        len(crowded), "、".join(crowded) or "无"))
     return 0
 
 

@@ -1,0 +1,38 @@
+name: 大盘强弱日级原型
+
+on:
+  schedule:
+    # 每天 17:30 北京时间（中金所日统计约 17:00 发布，收盘后），仅交易日；
+    # 节假日无新数据时脚本保留旧文件（404 即记无信号，不写文件）。
+    - cron: '30 9 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: python3 -m pip install --quiet requests
+      - name: 期指基差 + 会员持仓 + TRIN
+        run: |
+          cd market-strength
+          python3 fetch_basis.py
+          python3 fetch_members.py
+          python3 fetch_trin.py
+      - name: 汇总小表与对照日志
+        # Actions 环境内无当日 16:16 扫描日志，M 门记“未取到”；
+        # 本地跑 summarize.py --date <当日> 会以同日去重方式补进 M 门。
+        run: |
+          cd market-strength
+          python3 summarize.py
+      - name: 提交更新
+        run: |
+          git config user.name "market-strength-bot"
+          git config user.email "market-strength-bot@users.noreply.github.com"
+          git add market-strength/data/
+          git diff --cached --quiet || git commit -m "大盘强弱日级原型 $(date +%F)"
+          git push

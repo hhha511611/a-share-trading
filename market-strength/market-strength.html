@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>大盘强弱日级原型</title>
+<meta name="theme-color" content="#1677ff">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#fff;color:#222;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  .wrap{max-width:560px;margin:0 auto;padding:12px 12px 48px}
+  h1{font-size:22px;margin:6px 0 2px}
+  h2{font-size:17px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid #eee}
+  .caption{font-size:12px;color:#888;margin:2px 0 4px}
+  a{color:#1677ff}
+  .banner{border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
+  .banner.warn{background:#fff8e8;border:1px solid #f0dcae;color:#8a6d1a}
+  .banner.info{background:#f0f5ff;border:1px solid #c2d8ff;color:#1d4fa3}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #eee;border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+  th,td{padding:8px 8px;text-align:right;border-bottom:1px solid #f0f0f0}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#fafbfc;color:#666;font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .num{font-variant-numeric:tabular-nums}
+  .neg{color:#1e7a1e;font-weight:700}
+  .pos{color:#b02a2a;font-weight:700}
+  .muted{color:#999}
+  details{margin-top:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px}
+  summary{font-size:14px;font-weight:600;cursor:pointer}
+  details p,details li{font-size:13px;color:#444}
+  .note{font-size:12px;color:#999;margin-top:8px}
+  .err{background:#fdeaea;border:1px solid #f3b8b8;color:#b02a2a;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0;display:none}
+  .kv{display:flex;justify-content:space-between;border-bottom:1px solid #f5f5f5;padding:8px 2px;font-size:13.5px}
+  .kv:last-child{border-bottom:none}
+  .kv b{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>大盘强弱日级原型</h1>
+  <div class="caption">观察口径 · 不进入 V1.1 执行层 · M 门仍是唯一执行裁决 · 不构成买卖建议</div>
+  <div class="caption" id="dataDate">数据日期：加载中…</div>
+  <div class="banner warn" id="staleBanner" style="display:none"></div>
+  <div class="err" id="loadError"></div>
+
+  <h2>期指基差（年化基差率）</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>合约</th><th>结算</th><th>现货</th><th>基差</th><th>年化</th><th>100日分位</th></tr></thead>
+    <tbody id="basisRows"><tr><td colspan="6" style="text-align:left;color:#999">加载中…</td></tr></tbody>
+  </table></div>
+  <div class="caption">年化基差率 = (结算−现货)/现货 × 250/剩余交易日；A 股持续贴水是常态，只看分位、不看绝对值。分位需 ≥80 个有效日，首日为 —。</div>
+
+  <h2>前 20 结算会员净持仓（买−卖）</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>合约</th><th>净持仓</th><th>日变化</th><th>买合计</th><th>卖合计</th><th>100日分位</th></tr></thead>
+    <tbody id="memberRows"><tr><td colspan="6" style="text-align:left;color:#999">加载中…</td></tr></tbody>
+  </table></div>
+  <div class="caption">代客口径：结算会员汇总客户与自营，单家翻转 ≠ 市场转向；前 20 名合计 ≠ 全市场持仓。</div>
+
+  <h2>TRIN（日级）</h2>
+  <div id="trinBox"><div class="kv"><span>加载中…</span></div></div>
+  <div class="caption">主读数为成交额口径；不套用美股 0.5/2.0 阈值，阈值以后拿 A 股自己的历史分布定。涨跌停家数仅作参考。</div>
+
+  <h2>M 门对照</h2>
+  <div id="mBox"><div class="kv"><span>加载中…</span></div></div>
+
+  <h2>近 14 日对照</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>日期</th><th>IF 年化</th><th>IF 净持仓</th><th>TRIN(额)</th><th>M 门</th></tr></thead>
+    <tbody id="logRows"><tr><td colspan="5" style="text-align:left;color:#999">加载中…</td></tr></tbody>
+  </table></div>
+  <div class="caption">两周试跑结束时（约 12-04）对照检查：极端读数是否领先或同步于 M 门变化、是否独立于 M 门提供信息；未证实有效的不升级为信号。</div>
+
+  <details>
+    <summary>口径与边界</summary>
+    <p>三路指标（只用日频公开数据）：①期指基差——中金所日统计结算价 vs 现货指数收盘，年化 ×250/剩余交易日（交割日为交割月第 3 个周五），交割周、分红季、主力换月均有标注；②前 20 结算会员净持仓——中金所成交持仓排名，持买前 20 合计减持卖前 20 合计，成交量表无买/卖拆分；③日级 TRIN——东财全市场快照，成交额口径为主读数，另算成交量口径与 10 日均值。</p>
+    <p>分位规则：100 日分位需 ≥80 个有效日、250 日分位需 ≥200 个有效日，否则记 null；原型上线首日（2026-11-20）有效历史 0 日，分位全为 —，属预期状态。</p>
+    <p>边界：本页是场外观察原型，不进入 CAN SLIM V1.1 执行层，不改任何阈值，不影响 20 笔验证计数与 A/B/C 档判定，不作买卖信号，无场景标签、无综合分数。国家队持仓是季频慢变量，不拼进日频表。</p>
+  </details>
+  <div class="note" id="footNote"></div>
+</div>
+<script>
+(function(){
+  function bjToday(){
+    return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Shanghai"});
+  }
+  function fmt(v, nd){
+    if(v === null || v === undefined) return "—";
+    return Number(v).toFixed(nd === undefined ? 2 : nd);
+  }
+  function loadJSON(path){
+    return fetch(path,{cache:"no-store"}).then(function(r){
+      if(!r.ok) throw new Error(path+" HTTP "+r.status);
+      return r.json();
+    });
+  }
+  function loadCSV(path){
+    return fetch(path,{cache:"no-store"}).then(function(r){
+      if(!r.ok) throw new Error(path+" HTTP "+r.status);
+      return r.text();
+    }).then(function(text){
+      var lines = text.trim().split("\n");
+      var head = lines[0].split(",");
+      return lines.slice(1).map(function(line){
+        var cells = line.split(",");
+        var o = {};
+        head.forEach(function(h,i){ o[h] = cells[i] === undefined ? "" : cells[i]; });
+        return o;
+      });
+    });
+  }
+  function lastDay(data){
+    var days = (data && data.days) || [];
+    return days.length ? days[days.length-1] : null;
+  }
+  Promise.all([
+    loadJSON("data/basis.json").catch(function(e){ return null; }),
+    loadJSON("data/members.json").catch(function(e){ return null; }),
+    loadJSON("data/trin.json").catch(function(e){ return null; }),
+    loadCSV("data/comparison_log.csv").catch(function(e){ return []; })
+  ]).then(function(res){
+    var basis = res[0], members = res[1], trin = res[2], log = res[3];
+    var bDay = lastDay(basis), mDay = lastDay(members), tDay = lastDay(trin);
+    var dates = [bDay && bDay.date, mDay && mDay.date, tDay && tDay.date].filter(Boolean);
+    var latest = dates.sort().pop();
+    var errEl = document.getElementById("loadError");
+    if(!latest){
+      errEl.style.display = "block";
+      errEl.textContent = "三路数据均未加载到（data/*.json 缺失或网络失败）。";
+      return;
+    }
+    document.getElementById("dataDate").textContent = "数据日期：" + latest +
+      "（基差 " + (bDay ? bDay.date : "—") + " / 会员 " + (mDay ? mDay.date : "—") +
+      " / TRIN " + (tDay ? tDay.date : "—") + "）";
+    if(latest !== bjToday()){
+      var banner = document.getElementById("staleBanner");
+      banner.style.display = "block";
+      banner.textContent = "数据不是今天（" + bjToday() + "），最新为 " + latest +
+        "，可能为节假日或当日数据尚未发布。";
+    }
+    // 基差表
+    var bRows = document.getElementById("basisRows");
+    if(bDay){
+      bRows.innerHTML = bDay.rows.map(function(r){
+        return "<tr><td>" + r.contract + "</td><td class='num'>" + fmt(r.settle,1) +
+          "</td><td class='num'>" + fmt(r.spot_close,2) + "</td><td class='num'>" + fmt(r.basis,2) +
+          "</td><td class='num " + (r.value < 0 ? "neg" : "pos") + "'>" + fmt(r.value) + "%</td>" +
+          "<td class='num'>" + fmt(r.percentile,1) + "</td></tr>";
+      }).join("");
+    } else {
+      bRows.innerHTML = "<tr><td colspan='6' style='text-align:left;color:#999'>无信号</td></tr>";
+    }
+    // 会员表
+    var mRows = document.getElementById("memberRows");
+    if(mDay){
+      mRows.innerHTML = mDay.rows.map(function(r){
+        if(r.value === null || r.value === undefined)
+          return "<tr><td>" + r.contract + "</td><td colspan='5' style='text-align:left;color:#999'>无信号</td></tr>";
+        return "<tr><td>" + r.contract + "</td><td class='num " + (r.value < 0 ? "neg" : "pos") + "'>" +
+          r.value.toLocaleString() + "</td><td class='num'>" + fmt(r.net_day_chg,0) +
+          "</td><td class='num'>" + r.buy_total.toLocaleString() + "</td><td class='num'>" +
+          r.sell_total.toLocaleString() + "</td><td class='num'>" + fmt(r.percentile,1) + "</td></tr>";
+      }).join("");
+    } else {
+      mRows.innerHTML = "<tr><td colspan='6' style='text-align:left;color:#999'>无信号</td></tr>";
+    }
+    // TRIN
+    var tBox = document.getElementById("trinBox");
+    if(tDay){
+      tBox.innerHTML =
+        "<div class='kv'><span>TRIN（成交额口径，主读数）</span><b>" + fmt(tDay.value,4) + "</b></div>" +
+        "<div class='kv'><span>TRIN（成交量口径）</span><b>" + fmt(tDay.value_vol,4) + "</b></div>" +
+        "<div class='kv'><span>10 日均值（n=" + tDay.ma10_n + "）</span><b>" + fmt(tDay.ma10,4) + "</b></div>" +
+        "<div class='kv'><span>上涨 / 下跌 / 平盘 / 停牌</span><b>" + tDay.up + " / " + tDay.down +
+        " / " + tDay.flat + " / " + tDay.suspended + "</b></div>" +
+        "<div class='kv'><span>涨停 / 跌停</span><b>" + tDay.limit_up + " / " + tDay.limit_down + "</b></div>" +
+        "<div class='kv'><span>100 日分位</span><b>" + fmt(tDay.percentile,1) + "</b></div>";
+    } else {
+      tBox.innerHTML = "<div class='kv'><span>无信号</span></div>";
+    }
+    // M 门（取对照日志最新行）
+    var mBox = document.getElementById("mBox");
+    var logSorted = log.slice().sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+    var lastLog = logSorted.length ? logSorted[logSorted.length-1] : null;
+    if(lastLog){
+      mBox.innerHTML =
+        "<div class='kv'><span>M 门状态（" + lastLog.date + "）</span><b>" + (lastLog.m_gate || "—") + "</b></div>" +
+        "<div class='kv'><span>上证 / 深证 / 创业板</span><b>" + fmt(lastLog.sh_pct) + "% / " +
+        fmt(lastLog.sz_pct) + "% / " + fmt(lastLog.cyb_pct) + "%</b></div>";
+    } else {
+      mBox.innerHTML = "<div class='kv'><span>对照日志未加载</span></div>";
+    }
+    // 近 14 日对照
+    var lRows = document.getElementById("logRows");
+    if(logSorted.length){
+      lRows.innerHTML = logSorted.slice(-14).reverse().map(function(r){
+        return "<tr><td>" + r.date + "</td><td class='num'>" + fmt(r.if_ann_pct) + "%</td>" +
+          "<td class='num'>" + (r.if_net === "" ? "—" : Number(r.if_net).toLocaleString()) +
+          "</td><td class='num'>" + fmt(r.trin_amt === "" ? null : Number(r.trin_amt), 4) +
+          "</td><td style='text-align:left'>" + (r.m_gate || "—") + "</td></tr>";
+      }).join("");
+    } else {
+      lRows.innerHTML = "<tr><td colspan='5' style='text-align:left;color:#999'>对照日志未加载</td></tr>";
+    }
+    document.getElementById("footNote").textContent =
+      "数据源：中金所日统计/排名 CSV（基差、会员持仓）、东财全市场快照（TRIN）、" +
+      "腾讯指数收盘（现货）；M 门取自当日 16:16 扫描日志。分位窗口：100 日需 ≥80 有效日，" +
+      "250 日需 ≥200 有效日；上线首日有效历史 0 日。";
+  }).catch(function(e){
+    var errEl = document.getElementById("loadError");
+    errEl.style.display = "block";
+    errEl.textContent = "加载失败：" + e.message;
+  });
+})();
+</script>
+</body>
+</html>

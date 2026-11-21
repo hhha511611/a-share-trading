@@ -1,0 +1,35 @@
+{
+ "version": 1,
+ "indicator": "TRIN",
+ "days": [
+  {
+   "timestamp": "2026-11-20",
+   "date": "2026-11-20",
+   "indicator": "TRIN",
+   "value": 0.2731,
+   "value_vol": 0.222,
+   "percentile": null,
+   "percentile_250": null,
+   "ma10": 0.2731,
+   "ma10_n": 1,
+   "up": 297,
+   "down": 4897,
+   "flat": 22,
+   "suspended": 349,
+   "total": 5565,
+   "suspended_dash_all": 346,
+   "suspended_f3_num_f5_zero": 3,
+   "up_vol": 226709890.0,
+   "down_vol": 830012498.0,
+   "up_amt": 257382877301.42,
+   "down_amt": 1159095543266.34,
+   "limit_up": 33,
+   "limit_down": 90,
+   "up_ge5pct": 52,
+   "extreme_note": null,
+   "data_quality_flag": "10日均值窗口不足（仅 1 日）；分位仅供参考（有效历史 0 日 < 80 日）"
+  }
+ ],
+ "updated": "2026-11-20",
+ "generated_at_beijing": "2026-11-20 17:43"
+}

@@ -13,6 +13,13 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    # 单次运行总超时 30 分钟：抓数卡住时直接失败，不无限挂起
+    #（2026-11-23 两次运行各卡 1 小时以上）。
+    timeout-minutes: 30
+    # 同一时间只跑一份：新运行开始时取消正在跑的旧运行，避免两次抓数互相冲突。
+    concurrency:
+      group: market-strength-daily
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - name: 安装依赖

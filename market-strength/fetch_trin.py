@@ -1,15 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""日级 TRIN（Arms Index）抓取：东财全市场快照 clist 接口。
+"""日级 TRIN（Arms Index）抓取：全市场快照。
 
 只做场外观察，不进入 CAN SLIM V1.1 执行层，不构成买卖建议，不预测价格。
-数据源：东方财富 push2.eastmoney.com/api/qt/clist/get（全 A 股，f3 涨跌幅、f5 成交量、f6 成交额）。
-全市场约 5565 只，每页固定返回 100 条（pz 参数无效，须分页拉取），顺序拉取并加重试
-（并发下偶发空页，故不用并发；单页失败重试 5 次，退避 5/15/30/60 秒）。
-快速失败（2026-11-23 新增）：快照拉取总时长超过 FETCH_DEADLINE_SECS（默认 480 秒，
-可用 TRIN_FETCH_DEADLINE_SECS 环境变量覆盖）即放弃本轮；第一轮连续 3 页失败即判定
-接口不可用，立即放弃。Actions 出口 IP 被限流时逐页重试会把单轮拖到数小时，
-快速失败后由工作流 timeout-minutes 兜底，失败退出码 1、不写文件。
+数据源（2026-11-23 改版，双源，主备切换）：
+  主：腾讯 qt.gtimg.cn/q=<代码逗号分隔> 批量行情。代码表见 universe.json
+      （2026-11-20 东财快照导出的 5565 只，f13 0→sz、1→sh；北交所不在宇宙内）。
+      每批 400 只、4 并发，约 14 批、半分钟级完成。字段（88 列，以 ~ 分隔）：
+      [1]名称 [2]代码 [3]现价 [4]昨收 [6]成交量（手）[31]涨跌 [32]涨跌幅%
+      [57]成交额（万元）。归一化为东财口径行：f3=涨跌幅%，f5=成交量（股），
+      f6=成交额（元）。TRIN 只用比值，单位换算不影响结果。
+      停牌判定与东财版一致：成交量与成交额同时为 0。腾讯在本机与 Actions
+      均实测可用（2026-11-23：本机 17 只 1.9 秒；Actions 上 fetch_basis.py
+      用它拉 4 只指数收盘价全部一致）。
+  备：东方财富 push2.eastmoney.com/api/qt/clist/get（全 A 股，f3 涨跌幅、
+      f5 成交量、f6 成交额）。每页固定返回 100 条（pz 参数无效，须分页拉取），
+      56 页 8 并发。只在腾讯失败时启用。
+2026-11-23 事故（为什么改版）：当日两次 Actions 运行（手动 18:23、定时
+18:38）均卡在 fetch_trin.py 步骤 2 小时以上、零输出后被用户取消；日志证实
+fetch_basis.py 与 fetch_members.py 均已正常完成，卡点只在 TRIN 拉取。
+旧版是 56 页顺序拉取，每页失败重试 5 次（退避 5/15/30/60 秒、单请求
+timeout=30 秒），无总时长上限：端点一旦不可用（Actions 出口 IP 被限流/
+tarpit），单页最坏约 260 秒，整轮最坏约 4 小时。更糟的是 requests 的
+timeout 是“每次读操作”超时：服务器以慢速滴答式回包时，读超时永不触发，
+脚本无输出地挂起；且 Python 管道 stdout 默认块缓冲，进程被取消时缓冲内
+的 WARN 日志随进程一起丢失，日志里看不到任何重试痕迹。
+改版后的防护：① 主备双源，腾讯优先；② 两路均为并发 + 每任务预算超时
+（future.result(timeout)，滴答式回包也会被预算切断）；③ 全局总时长上限
+FETCH_DEADLINE_SECS（默认 480 秒），超了即放弃；④ 全部输出行缓冲
+（sys.stdout.reconfigure(line_buffering=True)），日志实时可见；
+⑤ 失败退出码 1、不写文件。
 字段口径：
   上涨 f3>0，下跌 f3<0；平盘 f3==0 且有成交；停牌以 f5==0 且 f6==0 判定（无成交）。
   TRIN(量) = (上涨家数/下跌家数) / (上涨成交量/下跌成交量)
@@ -29,8 +49,10 @@
 import json
 import math
 import os
+import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -38,20 +60,26 @@ import requests
 BJ = timezone(timedelta(hours=8))
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_PATH = os.path.join(BASE, "data", "trin.json")
+UNIVERSE_PATH = os.path.join(BASE, "universe.json")
 KEEP_DAYS = 365  # 历史保留 1 年（分位窗口上限 250 日）
 CLOSE_GUARD_HHMM = (15, 5)
 
-CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+CLIST_URL = os.environ.get(
+    "TRIN_CLIST_URL", "https://push2.eastmoney.com/api/qt/clist/get")
+TENCENT_URL = os.environ.get(
+    "TRIN_TENCENT_URL", "https://qt.gtimg.cn/q={codes}")
 # 全 A 股：深主板 m:0+t:6、创业板 m:0+t:80、沪主板 m:1+t:2、科创板 m:1+t:23
 FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 FIELDS = "f12,f14,f3,f5,f6"
 PAGE_SIZE = 100
-# 快速失败：快照拉取总时长上限（秒），默认 8 分钟，可用环境变量覆盖。
-# Actions 出口 IP 被限流时，逐页重试会把单轮拖到数小时；超过上限即放弃本轮，
-# 不写文件、退出码 1，由工作流 timeout-minutes 兜底。
+# 快照拉取总时长上限（秒），默认 8 分钟，可用环境变量覆盖。
 FETCH_DEADLINE_SECS = int(os.environ.get("TRIN_FETCH_DEADLINE_SECS", "480"))
-# 连续失败页数达到此值即判定接口不可用，立即放弃，不再逐页磨。
-MAX_CONSEC_FAILURES = 3
+# 并发与预算：腾讯每批 400 只、4 并发，每批预算 60 秒；clist 每页预算 90 秒。
+CHUNK_SIZE = 400
+TENCENT_WORKERS = 4
+CLIST_WORKERS = 8
+CHUNK_BUDGET_SECS = 60
+PAGE_BUDGET_SECS = 90
 # 注意：必须按 fid=f12（代码）排序拉取。按 fid=f3（实时涨跌幅）拉取时价格在分页间
 # 变动，行会跨页重复/丢失（2026-11-20 实测：5565 行仅 5123 个唯一代码）。ut 为东财固定参数。
 UT = "bd1d9ddb04089700cf9c27f6f742628"
@@ -77,7 +105,114 @@ def pct_rank(series, value):
     return round(100.0 * sum(1 for v in series if v <= value) / len(series), 1)
 
 
-def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60), deadline=None):
+def _collect(executor, tasks, deadline, budget):
+    """并发收任务：tasks 为 {key: 无参可调用}。
+    每个 future 以 budget 秒与共享 deadline 中较小者为限；超时/抛错记失败。
+    返回 ({key: 结果}, [失败 key])。滴答式回包的任务会被预算切断，不会无限等。
+    注意：被切断的任务线程可能仍在读数据里（每 read 最多 30 秒超时），
+    进程退出时最多再等一个 read 超时；全局 deadline 与工作流超时兜底。"""
+    futs = {executor.submit(fn): key for key, fn in tasks.items()}
+    results, failed = {}, []
+    for fut, key in futs.items():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            failed.append(key)
+            continue
+        try:
+            results[key] = fut.result(timeout=min(budget, remaining))
+        except Exception as e:  # noqa: BLE001 - 超时/失败都记失败页，统一重拉
+            print("WARN 任务 %s 失败: %s" % (key, e), flush=True)
+            failed.append(key)
+    return results, failed
+
+
+def _parse_tencent(text):
+    """解析腾讯批量行情文本，归一化为东财口径行 {code6: 行}。
+    字段：[1]名称 [2]代码 [3]现价 [4]昨收 [6]成交量（手）[32]涨跌幅%
+    [57]成交额（万元）。解析失败的行跳过（计入缺失）。"""
+    rows = {}
+    for m in re.finditer(r'v_\w+="([^"]*)"', text):
+        parts = m.group(1).split("~")
+        if len(parts) < 58:
+            continue
+        try:
+            code6 = parts[2]
+            pct = float(parts[32])
+            vol_hands = float(parts[6])
+            amt_wan = float(parts[57])
+        except (ValueError, IndexError):
+            continue
+        if not code6 or len(code6) != 6:
+            continue
+        rows[code6] = {"f12": code6, "f14": parts[1], "f3": pct,
+                       "f5": vol_hands * 100, "f6": amt_wan * 10000}
+    return rows
+
+
+def _tencent_chunk(codes, deadline, attempts=3, backoff=(3, 8)):
+    """拉一批（<=400 只）腾讯行情，返回归一化行 dict。"""
+    url = TENCENT_URL.format(codes=",".join(codes))
+    last_err = None
+    for i in range(attempts):
+        if time.monotonic() > deadline:
+            raise RuntimeError("超过总时长上限，快速失败")
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code != 200:
+                raise RuntimeError("HTTP %d" % r.status_code)
+            rows = _parse_tencent(r.text)
+            if not rows:
+                raise RuntimeError("腾讯返回空")
+            return rows
+        except Exception as e:  # noqa: BLE001 - retry then surface
+            last_err = e
+            if i < attempts - 1:
+                wait = backoff[i] if i < len(backoff) else backoff[-1]
+                print("WARN 腾讯批次第 %d 次失败: %s，%d 秒后重试"
+                      % (i + 1, e, wait), flush=True)
+                time.sleep(wait)
+    raise RuntimeError("腾讯批量拉取失败: %s" % last_err)
+
+
+def fetch_via_tencent(deadline):
+    """主源：腾讯批量行情。返回 (rows list, 缺失只数)。
+    缺失 >2% 即判定数据不可靠，抛错走备用源。"""
+    with open(UNIVERSE_PATH, encoding="utf-8") as f:
+        universe = json.load(f)
+    codes = universe["codes"]
+    chunks = [codes[i:i + CHUNK_SIZE] for i in range(0, len(codes), CHUNK_SIZE)]
+    rows = {}
+    ex = ThreadPoolExecutor(max_workers=TENCENT_WORKERS)
+    try:
+        tasks = {i: (lambda c=ch: _tencent_chunk(c, deadline))
+                 for i, ch in enumerate(chunks)}
+        results, failed = _collect(ex, tasks, deadline, CHUNK_BUDGET_SECS)
+        for res in results.values():
+            rows.update(res)
+        if failed:
+            print("腾讯第一轮失败 %d 批，10 秒后重拉：%s"
+                  % (len(failed), failed), flush=True)
+            time.sleep(10)
+            tasks2 = {i: (lambda c=chunks[i]: _tencent_chunk(c, deadline))
+                      for i in failed}
+            results2, failed2 = _collect(ex, tasks2, deadline, CHUNK_BUDGET_SECS)
+            for res in results2.values():
+                rows.update(res)
+            failed = failed2
+        if failed:
+            raise RuntimeError("腾讯以下批次始终拉不到: %s" % failed)
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    missing = [c for c in codes if c[2:] not in rows]
+    if len(missing) > 0.02 * len(codes):
+        raise RuntimeError("腾讯缺失 %d 只（>2%%），数据不可靠" % len(missing))
+    if missing:
+        print("腾讯未返回 %d 只（占 %.2f%%），继续计算"
+              % (len(missing), 100.0 * len(missing) / len(codes)), flush=True)
+    return list(rows.values()), len(missing)
+
+
+def fetch_page(pn, attempts=5, backoff=(5, 15, 30, 60), deadline=None):
     """拉一页 clist；空页/失败重试。返回 (total, diff list)。
     deadline 为 time.monotonic() 绝对时点：超过即快速失败，不再重试。"""
     params = {"fid": "f12", "po": "1", "pz": str(PAGE_SIZE), "pn": str(pn),
@@ -89,7 +224,7 @@ def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60), deadline=None):
             raise RuntimeError("超过总时长上限 %d 秒，快速失败（第 %d 页）"
                                % (FETCH_DEADLINE_SECS, pn))
         try:
-            r = session.get(CLIST_URL, params=params, headers=HEADERS, timeout=30)
+            r = requests.get(CLIST_URL, params=params, headers=HEADERS, timeout=30)
             if r.status_code != 200:
                 raise RuntimeError("HTTP %d" % r.status_code)
             payload = r.json()
@@ -105,53 +240,63 @@ def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60), deadline=None):
             if i < attempts - 1:
                 wait = backoff[i] if i < len(backoff) else backoff[-1]
                 print("WARN clist 第 %d 页第 %d 次失败: %s，%d 秒后重试"
-                      % (pn, i + 1, e, wait))
+                      % (pn, i + 1, e, wait), flush=True)
                 time.sleep(wait)
     raise RuntimeError("clist 第 %d 页拉取失败: %s" % (pn, last_err))
 
 
-def fetch_snapshot():
-    """顺序分页拉全市场快照；失败页 60 秒后整轮重拉一次。返回 rows 与 total。
-    快速失败：总时长超 FETCH_DEADLINE_SECS 或第一轮连续 MAX_CONSEC_FAILURES 页
-    失败即放弃，抛错给 main（退出码 1，不写文件）。"""
-    deadline = time.monotonic() + FETCH_DEADLINE_SECS
-    session = requests.Session()
-    total, first = fetch_page(session, 1, deadline=deadline)
-    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
-    collected = {1: first}
-    failed = []
-    consec = 0
-    for pn in range(2, pages + 1):
-        try:
-            _t, diff = fetch_page(session, pn, deadline=deadline)
+def fetch_via_clist(deadline):
+    """备用源：东财 clist 并发拉取。返回 rows list。
+    第 1 页也走预算（_collect），否则滴答式回包会在直接调用里无限挂起。"""
+    ex = ThreadPoolExecutor(max_workers=CLIST_WORKERS)
+    try:
+        results, failed = _collect(
+            ex, {1: lambda: fetch_page(1, deadline=deadline)},
+            deadline, PAGE_BUDGET_SECS)
+        if failed:
+            raise RuntimeError("clist 第 1 页拉取失败")
+        total, first = results[1]
+        pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        collected = {1: first}
+        tasks = {pn: (lambda p=pn: fetch_page(p, deadline=deadline))
+                 for pn in range(2, pages + 1)}
+        results, failed = _collect(ex, tasks, deadline, PAGE_BUDGET_SECS)
+        for pn, (_t, diff) in results.items():
             collected[pn] = diff
-            consec = 0
-        except Exception as e:  # noqa: BLE001 - 记下失败页，第二轮重拉
-            print("WARN clist 第 %d 页第一轮失败: %s" % (pn, e))
-            failed.append(pn)
-            consec += 1
-            if consec >= MAX_CONSEC_FAILURES:
-                raise RuntimeError("clist 连续 %d 页拉取失败，快速失败（疑似限流/接口不可用）"
-                                   % consec)
-        time.sleep(0.5)  # 错峰
-    if failed:
-        print("第一轮失败 %d 页，60 秒后第二轮重拉：%s" % (len(failed), failed))
-        time.sleep(60)
-        still = []
-        for pn in failed:
-            try:
-                _t, diff = fetch_page(session, pn, deadline=deadline)
+        if failed:
+            print("clist 第一轮失败 %d 页，30 秒后第二轮重拉：%s"
+                  % (len(failed), failed), flush=True)
+            time.sleep(30)
+            tasks2 = {pn: (lambda p=pn: fetch_page(p, deadline=deadline))
+                      for pn in failed}
+            results2, failed2 = _collect(ex, tasks2, deadline, PAGE_BUDGET_SECS)
+            for pn, (_t, diff) in results2.items():
                 collected[pn] = diff
-            except Exception as e:  # noqa: BLE001
-                print("WARN clist 第 %d 页第二轮仍失败: %s" % (pn, e))
-                still.append(pn)
-            time.sleep(0.5)
-        if still:
-            raise RuntimeError("clist 以下页始终拉不到: %s" % still)
+            failed = failed2
+        if failed:
+            raise RuntimeError("clist 以下页始终拉不到: %s" % failed)
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     rows = []
     for pn in range(1, pages + 1):
         rows.extend(collected[pn])
-    return total, rows
+    return rows
+
+
+def fetch_snapshot():
+    """先腾讯批量（主），失败则东财 clist 并发（备）。返回 (rows, source, missing)。
+    两路都失败即抛错给 main（退出码 1，不写文件）。"""
+    deadline = time.monotonic() + FETCH_DEADLINE_SECS
+    try:
+        rows, missing = fetch_via_tencent(deadline)
+        print("TRIN 数据源：腾讯批量（%d 行，缺失 %d 只）"
+              % (len(rows), missing), flush=True)
+        return rows, "tencent", missing
+    except Exception as e:  # noqa: BLE001 - 主源失败，走备用源
+        print("WARN 腾讯主源失败，改走东财 clist 备用源：%s" % e, flush=True)
+    rows = fetch_via_clist(deadline)
+    print("TRIN 数据源：东财 clist（%d 行）" % len(rows), flush=True)
+    return rows, "eastmoney-clist", 0
 
 
 def limit_threshold(code, name):
@@ -235,6 +380,22 @@ def load_history():
         return json.load(f)
 
 
+def _tx_line(code6, name, price, prev, vol_hands, pct, amt_wan):
+    """自测用：拼一条腾讯行情行（88 列，不足补空串）。"""
+    parts = [""] * 88
+    parts[1] = name
+    parts[2] = code6
+    parts[3] = str(price)
+    parts[4] = str(prev)
+    parts[6] = str(vol_hands)
+    parts[31] = str(round(price - prev, 2))
+    parts[32] = str(pct)
+    parts[35] = "%s/%s/%s" % (price, vol_hands, int(amt_wan * 10000))
+    parts[57] = str(amt_wan)
+    return 'v_%s="%s";' % ("sh" + code6 if code6.startswith("6") else "sz" + code6,
+                           "~".join(parts))
+
+
 def selftest():
     # 构造 100 只：60 涨（量 100/只）、40 跌（量 200/只）
     # TRIN = (60/40)/(6000/8000) = 1.5/0.75 = 2.0
@@ -266,10 +427,25 @@ def selftest():
                    {"f12": "600003", "f14": "D", "f3": -1.0, "f5": 10, "f6": 100}])
     assert lim["limit_up"] == 2, lim  # 创业 12% 不算涨停；主板 10% 与 ST 5% 算
     assert lim["up"] == 3 and lim["down"] == 1
+    # 腾讯解析：1 涨（量手 100、额 10 万）、1 跌、1 停牌（量额为 0）
+    text = (_tx_line("600000", "浦发银行", 10.75, 10.87, 100, -1.10, 10.0)
+            + _tx_line("000001", "平安银行", 12.34, 12.22, 200, 0.98, 20.0)
+            + _tx_line("600001", "停牌股", 5.00, 5.00, 0, 0.0, 0.0))
+    trows = _parse_tencent(text)
+    assert len(trows) == 3, trows
+    assert trows["600000"]["f3"] == -1.10 and trows["600000"]["f5"] == 10000.0
+    assert trows["600000"]["f6"] == 100000.0
+    assert trows["000001"]["f3"] == 0.98
+    tc = compute(list(trows.values()))
+    assert (tc["up"], tc["down"], tc["suspended"]) == (1, 1, 1), tc
+    # 分批：5565 只按 400 分批应为 14 批（末批 365 只）
+    n_chunks = (5565 + CHUNK_SIZE - 1) // CHUNK_SIZE
+    assert n_chunks == 14, n_chunks
     print("selftest PASS")
 
 
 def main():
+    sys.stdout.reconfigure(line_buffering=True)
     args = sys.argv[1:]
     if "--selftest" in args:
         selftest()
@@ -285,7 +461,7 @@ def main():
         return 0
 
     try:
-        total, rows = fetch_snapshot()
+        rows, source, missing = fetch_snapshot()
     except Exception as e:  # noqa: BLE001
         print("ERROR: 全市场快照拉取失败: %s" % e)
         return 1
@@ -319,6 +495,8 @@ def main():
         flags.append("10日均值窗口不足（仅 %d 日）" % len(window10))
     if pct100 is None:
         flags.append("分位仅供参考（有效历史 %d 日 < 80 日）" % len(series_amt))
+    if missing:
+        flags.append("腾讯未返回 %d 只" % missing)
     # 3σ 检查（只标记）
     if len(series_amt) >= 20:
         mean = sum(series_amt) / len(series_amt)
@@ -339,6 +517,9 @@ def main():
         "timestamp": today,
         "date": today,
         "indicator": "TRIN",
+        "source": source,
+        "universe": 5565,
+        "missing": missing,
         "value": c["trin"],               # 主读数：成交额口径
         "value_vol": c["trin_vol"],       # 成交量口径
         "percentile": pct100,             # 100 日分位（主分位）
@@ -365,13 +546,21 @@ def main():
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(hist, f, ensure_ascii=False, indent=1)
     os.replace(tmp, OUT_PATH)
-    print("wrote %s: TRIN(额)=%.4f TRIN(量)=%s 上涨 %d / 下跌 %d / 平盘 %d / 停牌 %d，"
+    print("wrote %s [%s]: TRIN(额)=%.4f TRIN(量)=%s 上涨 %d / 下跌 %d / 平盘 %d / 停牌 %d，"
           "涨停 %d 跌停 %d，10日均值 %.4f（n=%d），100日分位 %s，标志：%s"
-          % (today, c["trin"], c["trin_vol"], c["up"], c["down"], c["flat"],
+          % (today, source, c["trin"], c["trin_vol"], c["up"], c["down"], c["flat"],
              c["suspended"], c["limit_up"], c["limit_down"], ma10, len(window10),
              pct100, day["data_quality_flag"]))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # 直接 _exit：被预算切断的任务线程可能仍卡在滴答式读数据里，
+    # concurrent.futures 的退出钩子会等它们，进程退不出。此时逻辑工作已完成
+    #（文件已写盘、输出已行缓冲刷出），直接退出。Mock 验证：不加这行时，
+    # 被切断的滴答线程会拖住进程退出直至超时杀死。
+    code = main()
+    try:
+        sys.stdout.flush()
+    finally:
+        os._exit(code)

@@ -70,7 +70,9 @@ def parse_m_gate(date):
         m2 = re.search(r"M 仍为([^，。\n]+)", text)
         m_gate = m2.group(1).strip() if m2 else "未解析出"
     def _idx(name):
-        mm = re.search(name + r"\s*(-?\d+\.\d+)%", text)
+        # 锚定“%（收”：只取价格涨跌幅，不取同行/前文的成交量变化
+        #（2026-11-23 扫描日志前文先出现“上证 +2.5%”量增，旧正则误取）。
+        mm = re.search(name + r"\s*([+-]?\d+\.\d+)%（收", text)
         return float(mm.group(1)) if mm else None
     return m_gate, _idx("上证"), _idx("深证"), _idx("创业板"), raw
 

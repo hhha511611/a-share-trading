@@ -28,8 +28,38 @@
    "up_ge5pct": 52,
    "extreme_note": null,
    "data_quality_flag": "10日均值窗口不足（仅 1 日）；分位仅供参考（有效历史 0 日 < 80 日）"
+  },
+  {
+   "timestamp": "2026-11-23",
+   "date": "2026-11-23",
+   "indicator": "TRIN",
+   "source": "tencent",
+   "universe": 5565,
+   "missing": 1,
+   "value": 1.3484,
+   "value_vol": 1.0522,
+   "percentile": null,
+   "percentile_250": null,
+   "ma10": 0.8108,
+   "ma10_n": 2,
+   "up": 4306,
+   "down": 780,
+   "flat": 127,
+   "suspended": 351,
+   "total": 5564,
+   "suspended_dash_all": 0,
+   "suspended_f3_num_f5_zero": 351,
+   "up_vol": 514434096900.0,
+   "down_vol": 98053243300.0,
+   "up_amt": 1235702834133.0,
+   "down_amt": 301814628095.0,
+   "limit_up": 157,
+   "limit_down": 17,
+   "up_ge5pct": 1028,
+   "extreme_note": null,
+   "data_quality_flag": "10日均值窗口不足（仅 2 日）；分位仅供参考（有效历史 1 日 < 80 日）；腾讯未返回 1 只；两口径分歧 22.0%（量 1.0522 vs 额 1.3484），以成交额为准"
   }
  ],
- "updated": "2026-11-20",
- "generated_at_beijing": "2026-11-20 17:43"
+ "updated": "2026-11-23",
+ "generated_at_beijing": "2026-11-23 20:59"
 }

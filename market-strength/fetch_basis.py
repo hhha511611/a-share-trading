@@ -249,6 +249,9 @@ def selftest():
 
 
 def main():
+    # 行缓冲：日志实时可见；进程被取消时缓冲内的输出不丢失
+    #（2026-11-23 事故：块缓冲导致被取消的运行日志里零输出）。
+    sys.stdout.reconfigure(line_buffering=True)
     args = sys.argv[1:]
     if "--selftest" in args:
         selftest()

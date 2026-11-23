@@ -43,11 +43,6 @@
    "slot": "fixed"
   },
   {
-   "code": "301717",
-   "name": "超纯应材",
-   "slot": "dynamic"
-  },
-  {
    "code": "688836",
    "name": "宇树科技",
    "slot": "dynamic"
@@ -55,6 +50,11 @@
   {
    "code": "688787",
    "name": "海天瑞声",
+   "slot": "dynamic"
+  },
+  {
+   "code": "301717",
+   "name": "超纯应材",
    "slot": "dynamic"
   },
   {
@@ -75,14 +75,14 @@
    "688521"
   ],
   "dynamic": [
-   "301717",
    "688836",
    "688787",
+   "301717",
    "301080"
   ],
   "dynamic_ranked_by": "当日换手率",
   "candidates_total": 48,
-  "candidates_ranked": 48
+  "candidates_ranked": 29
  },
  "days": [
   {
@@ -1117,8 +1117,217 @@
      "note": "融资分位待接通"
     }
    ]
+  },
+  {
+   "date": "2026-11-23",
+   "rows": [
+    {
+     "code": "601689",
+     "name": "拓普集团",
+     "slot": "fixed",
+     "close": 52.92,
+     "pct": 10.0,
+     "turnover": 3.09,
+     "turnover_pct": 91.6,
+     "amount": 27.26,
+     "amount_share": 0.21,
+     "amount_share_pct": 99.2,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "拥挤",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "601100",
+     "name": "恒立液压",
+     "slot": "fixed",
+     "close": null,
+     "pct": null,
+     "turnover": null,
+     "turnover_pct": null,
+     "amount": null,
+     "amount_share": null,
+     "amount_share_pct": null,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "数据不全",
+     "n": 0,
+     "note": "当日 K 线未取到"
+    },
+    {
+     "code": "603119",
+     "name": "浙江荣泰",
+     "slot": "fixed",
+     "close": 50.82,
+     "pct": 10.0,
+     "turnover": 2.52,
+     "turnover_pct": 16.0,
+     "amount": 5.85,
+     "amount_share": 0.05,
+     "amount_share_pct": 55.6,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "正常",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "688017",
+     "name": "绿的谐波",
+     "slot": "fixed",
+     "close": 260.28,
+     "pct": 12.77,
+     "turnover": 5.92,
+     "turnover_pct": 69.2,
+     "amount": 26.39,
+     "amount_share": 0.2,
+     "amount_share_pct": 90.4,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "观察",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "603893",
+     "name": "瑞芯微",
+     "slot": "fixed",
+     "close": 202.88,
+     "pct": 10.0,
+     "turnover": 4.42,
+     "turnover_pct": 85.2,
+     "amount": 36.55,
+     "amount_share": 0.28,
+     "amount_share_pct": 96.8,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "观察",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "688018",
+     "name": "乐鑫科技",
+     "slot": "fixed",
+     "close": 145.89,
+     "pct": 10.02,
+     "turnover": 6.75,
+     "turnover_pct": 96.8,
+     "amount": 22.59,
+     "amount_share": 0.17,
+     "amount_share_pct": 99.6,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "拥挤",
+     "n": 250,
+     "note": "融资分位待接通；换手≥95%极端"
+    },
+    {
+     "code": "688099",
+     "name": "晶晨股份",
+     "slot": "fixed",
+     "close": 87.93,
+     "pct": 5.14,
+     "turnover": 3.76,
+     "turnover_pct": 68.0,
+     "amount": 13.67,
+     "amount_share": 0.11,
+     "amount_share_pct": 94.0,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "观察",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "688521",
+     "name": "芯原股份",
+     "slot": "fixed",
+     "close": 79.58,
+     "pct": 3.49,
+     "turnover": 5.5,
+     "turnover_pct": 87.2,
+     "amount": 22.25,
+     "amount_share": 0.17,
+     "amount_share_pct": 46.0,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "正常",
+     "n": 250,
+     "note": "融资分位待接通"
+    },
+    {
+     "code": "688836",
+     "name": "宇树科技",
+     "slot": "dynamic",
+     "close": 708.0,
+     "pct": 20.0,
+     "turnover": null,
+     "turnover_pct": null,
+     "amount": 46.77,
+     "amount_share": null,
+     "amount_share_pct": null,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "数据不全",
+     "n": 63,
+     "note": "换手历史不足；市场总量历史不足；融资分位待接通"
+    },
+    {
+     "code": "688787",
+     "name": "海天瑞声",
+     "slot": "dynamic",
+     "close": 103.8,
+     "pct": 20.0,
+     "turnover": 15.56,
+     "turnover_pct": 97.2,
+     "amount": 8.92,
+     "amount_share": 0.07,
+     "amount_share_pct": 96.8,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "拥挤",
+     "n": 250,
+     "note": "融资分位待接通；换手≥95%极端"
+    },
+    {
+     "code": "301717",
+     "name": "超纯应材",
+     "slot": "dynamic",
+     "close": 249.5,
+     "pct": 0.56,
+     "turnover": null,
+     "turnover_pct": null,
+     "amount": 5.54,
+     "amount_share": null,
+     "amount_share_pct": null,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "数据不全",
+     "n": 69,
+     "note": "换手历史不足；市场总量历史不足；融资分位待接通"
+    },
+    {
+     "code": "301080",
+     "name": "百普赛斯",
+     "slot": "dynamic",
+     "close": 74.12,
+     "pct": 11.14,
+     "turnover": 10.45,
+     "turnover_pct": 80.0,
+     "amount": 9.39,
+     "amount_share": 0.07,
+     "amount_share_pct": 82.0,
+     "margin_pct": null,
+     "margin_date": null,
+     "status": "正常",
+     "n": 250,
+     "note": "融资分位待接通"
+    }
+   ]
   }
  ],
- "updated": "2026-11-20",
- "generated_at_beijing": "2026-11-20 16:43"
+ "updated": "2026-11-23",
+ "generated_at_beijing": "2026-11-23 17:00"
 }

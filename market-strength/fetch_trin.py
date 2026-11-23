@@ -5,7 +5,11 @@
 只做场外观察，不进入 CAN SLIM V1.1 执行层，不构成买卖建议，不预测价格。
 数据源：东方财富 push2.eastmoney.com/api/qt/clist/get（全 A 股，f3 涨跌幅、f5 成交量、f6 成交额）。
 全市场约 5565 只，每页固定返回 100 条（pz 参数无效，须分页拉取），顺序拉取并加重试
-（并发下偶发空页，故不用并发；空页/失败页重试 3 次，退避 5/10/20 秒）。
+（并发下偶发空页，故不用并发；单页失败重试 5 次，退避 5/15/30/60 秒）。
+快速失败（2026-11-23 新增）：快照拉取总时长超过 FETCH_DEADLINE_SECS（默认 480 秒，
+可用 TRIN_FETCH_DEADLINE_SECS 环境变量覆盖）即放弃本轮；第一轮连续 3 页失败即判定
+接口不可用，立即放弃。Actions 出口 IP 被限流时逐页重试会把单轮拖到数小时，
+快速失败后由工作流 timeout-minutes 兜底，失败退出码 1、不写文件。
 字段口径：
   上涨 f3>0，下跌 f3<0；平盘 f3==0 且有成交；停牌以 f5==0 且 f6==0 判定（无成交）。
   TRIN(量) = (上涨家数/下跌家数) / (上涨成交量/下跌成交量)
@@ -42,6 +46,12 @@ CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 FIELDS = "f12,f14,f3,f5,f6"
 PAGE_SIZE = 100
+# 快速失败：快照拉取总时长上限（秒），默认 8 分钟，可用环境变量覆盖。
+# Actions 出口 IP 被限流时，逐页重试会把单轮拖到数小时；超过上限即放弃本轮，
+# 不写文件、退出码 1，由工作流 timeout-minutes 兜底。
+FETCH_DEADLINE_SECS = int(os.environ.get("TRIN_FETCH_DEADLINE_SECS", "480"))
+# 连续失败页数达到此值即判定接口不可用，立即放弃，不再逐页磨。
+MAX_CONSEC_FAILURES = 3
 # 注意：必须按 fid=f12（代码）排序拉取。按 fid=f3（实时涨跌幅）拉取时价格在分页间
 # 变动，行会跨页重复/丢失（2026-11-20 实测：5565 行仅 5123 个唯一代码）。ut 为东财固定参数。
 UT = "bd1d9ddb04089700cf9c27f6f742628"
@@ -67,13 +77,17 @@ def pct_rank(series, value):
     return round(100.0 * sum(1 for v in series if v <= value) / len(series), 1)
 
 
-def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60)):
-    """拉一页 clist；空页/失败重试。返回 (total, diff list)。"""
+def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60), deadline=None):
+    """拉一页 clist；空页/失败重试。返回 (total, diff list)。
+    deadline 为 time.monotonic() 绝对时点：超过即快速失败，不再重试。"""
     params = {"fid": "f12", "po": "1", "pz": str(PAGE_SIZE), "pn": str(pn),
               "np": "1", "fltt": "2", "invt": "2", "fs": FS, "fields": FIELDS,
               "ut": UT}
     last_err = None
     for i in range(attempts):
+        if deadline is not None and time.monotonic() > deadline:
+            raise RuntimeError("超过总时长上限 %d 秒，快速失败（第 %d 页）"
+                               % (FETCH_DEADLINE_SECS, pn))
         try:
             r = session.get(CLIST_URL, params=params, headers=HEADERS, timeout=30)
             if r.status_code != 200:
@@ -97,19 +111,28 @@ def fetch_page(session, pn, attempts=5, backoff=(5, 15, 30, 60)):
 
 
 def fetch_snapshot():
-    """顺序分页拉全市场快照；失败页 60 秒后整轮重拉一次。返回 rows 与 total。"""
+    """顺序分页拉全市场快照；失败页 60 秒后整轮重拉一次。返回 rows 与 total。
+    快速失败：总时长超 FETCH_DEADLINE_SECS 或第一轮连续 MAX_CONSEC_FAILURES 页
+    失败即放弃，抛错给 main（退出码 1，不写文件）。"""
+    deadline = time.monotonic() + FETCH_DEADLINE_SECS
     session = requests.Session()
-    total, first = fetch_page(session, 1)
+    total, first = fetch_page(session, 1, deadline=deadline)
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     collected = {1: first}
     failed = []
+    consec = 0
     for pn in range(2, pages + 1):
         try:
-            _t, diff = fetch_page(session, pn)
+            _t, diff = fetch_page(session, pn, deadline=deadline)
             collected[pn] = diff
+            consec = 0
         except Exception as e:  # noqa: BLE001 - 记下失败页，第二轮重拉
             print("WARN clist 第 %d 页第一轮失败: %s" % (pn, e))
             failed.append(pn)
+            consec += 1
+            if consec >= MAX_CONSEC_FAILURES:
+                raise RuntimeError("clist 连续 %d 页拉取失败，快速失败（疑似限流/接口不可用）"
+                                   % consec)
         time.sleep(0.5)  # 错峰
     if failed:
         print("第一轮失败 %d 页，60 秒后第二轮重拉：%s" % (len(failed), failed))
@@ -117,7 +140,7 @@ def fetch_snapshot():
         still = []
         for pn in failed:
             try:
-                _t, diff = fetch_page(session, pn)
+                _t, diff = fetch_page(session, pn, deadline=deadline)
                 collected[pn] = diff
             except Exception as e:  # noqa: BLE001
                 print("WARN clist 第 %d 页第二轮仍失败: %s" % (pn, e))

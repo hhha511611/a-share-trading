@@ -314,9 +314,9 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
 
 <!-- 板块筛选 -->
 <div id="v5mSector" style="display:none">
-  <div class="field" style="margin-top:10px"><label>选择行业（东方财富行业板块）</label><select id="v5Industry"><option>加载中…</option></select></div>
+  <div class="field" style="margin-top:10px"><label>选择概念板块（东方财富概念板块）</label><input id="v5BoardFilter" type="text" placeholder="输入关键词筛选，如：机器人、电池、航天" autocomplete="off"><select id="v5Industry" style="margin-top:6px"><option>加载中…</option></select></div>
   <div class="field"><label>扫描数量（按成交额优先，10–60）</label><input id="v5TopN" type="number" value="30" min="10" max="60" inputmode="numeric"></div>
-  <button class="btn" id="v5ScanBtn">扫描行业强势股</button>
+  <button class="btn" id="v5ScanBtn">扫描概念板块强势股</button>
   <div class="progress" id="v5ProgWrap" style="display:none"><div id="v5Prog"></div></div>
   <div class="err" id="v5SectorErr" style="display:none"></div>
   <div class="table-wrap" style="margin-top:8px"><table>
@@ -324,7 +324,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
     <tbody id="v5SectorBody"><tr><td colspan="9" style="text-align:center;color:#999">尚未扫描</td></tr></tbody>
   </table></div>
   <button class="btn btn-ghost" id="v5CsvBtn" style="display:none;margin-top:8px">下载扫描结果 CSV</button>
-  <div class="caption">按成交额抽取前 N 只，非全行业全量排名；技术评分 = Stage2 25 + 20日突破 10 + 55日突破 10 + 近250日高点 15 + 60日收益 15 + 120日收益 10 + 50日量比 15，非收益预测；财务/产业链需对候选逐只做单股分析。</div>
+  <div class="caption">按成交额抽取前 N 只，非全板块全量排名；技术评分 = Stage2 25 + 20日突破 10 + 55日突破 10 + 近250日高点 15 + 60日收益 15 + 120日收益 10 + 50日量比 15，非收益预测；财务/产业链需对候选逐只做单股分析。</div>
 </div>
 
 <!-- 多股比较 -->
@@ -1387,39 +1387,77 @@ function drawChart(t){
 
 /* ---------- 板块筛选 ---------- */
 var industriesLoaded=false,sectorRows=[];
+var allBoards=[],pinnedBoards=[];
+/* 跟踪池 8 板块在东财概念板块里的名字（前缀匹配，如 AI制药→AI制药（医疗））；东财无同名板块时该项不置顶、不报错 */
+var PINNED_NAMES=["固态电池","人形机器人","商业航天","6G","物理AI","AI制药","AI应用","半导体设备"];
+function boardUrl(pn){
+  return "https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14";
+}
+function fetchJsonRetry(url,retries){
+  return fetch(url).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+    .catch(function(e){if(retries>0)return new Promise(function(res){setTimeout(function(){res(fetchJsonRetry(url,retries-1));},800);});throw e;});
+}
+function renderBoards(){
+  var sel=$("v5Industry"),q=(($("v5BoardFilter").value)||"").trim();
+  var cur=sel.value;
+  sel.innerHTML="";
+  if(!q&&pinnedBoards.length){
+    var g=document.createElement("optgroup");g.label="跟踪池";sel.appendChild(g);
+    pinnedBoards.forEach(function(d){var o=document.createElement("option");o.value=d.f12;o.textContent="★ "+d.f14;g.appendChild(o);});
+  }
+  var g2=document.createElement("optgroup");g2.label=q?"筛选结果":"全部概念板块";sel.appendChild(g2);
+  allBoards.forEach(function(d){
+    if(q&&d.f14.indexOf(q)<0)return;
+    var o=document.createElement("option");o.value=d.f12;o.textContent=d.f14;g2.appendChild(o);
+  });
+  if(cur){for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===cur){sel.selectedIndex=i;break;}}}
+  if(!sel.options.length)sel.innerHTML="<option>无匹配的概念板块，换个关键词试试</option>";
+}
 function loadIndustries(){
   if(industriesLoaded)return;
-  var sel=$("v5Industry");
-  fetch("https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f12,f14")
-    .then(function(r){return r.json();}).then(function(j){
-      var diff=(j&&j.data&&j.data.diff)||[];
-      sel.innerHTML="";
-      diff.forEach(function(d){
-        var o=document.createElement("option");o.value=d.f12;o.textContent=d.f14;sel.appendChild(o);
-      });
-      industriesLoaded=true;
-    }).catch(function(){
-      sel.innerHTML="<option>行业列表加载失败，请切换网络后重进此页</option>";
+  var sel=$("v5Industry"),all=[],pn=1;
+  function page(){
+    return fetchJsonRetry(boardUrl(pn),1).then(function(j){
+      var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return;
+      all=all.concat(d.diff);
+      if(d.total&&all.length<d.total&&pn<10){pn++;return page();}
     });
+  }
+  page().then(function(){
+    if(!all.length)throw new Error("empty");
+    allBoards=all;
+    var used={};
+    PINNED_NAMES.forEach(function(n){
+      for(var i=0;i<all.length;i++){if(all[i].f14.indexOf(n)===0&&!used[all[i].f12]){pinnedBoards.push(all[i]);used[all[i].f12]=1;break;}}
+    });
+    renderBoards();
+    industriesLoaded=true;
+  }).catch(function(){
+    sel.innerHTML="<option>概念板块列表加载失败，请切换网络后重进此页</option>";
+  });
 }
+$("v5BoardFilter").oninput=function(){if(industriesLoaded)renderBoards();};
 function emFetchAll(fs,fields){
   var all=[],pn=1;
-  function one(){
+  function one(retried){
     return fetch("https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs="+encodeURIComponent(fs)+"&fields="+fields)
-      .then(function(r){return r.json();}).then(function(j){
+      .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(j){
         var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return all;
         all=all.concat(d.diff);
-        if(d.total>pn*100){pn++;return one();}
+        if(d.total>pn*100){pn++;return one(false);}
         return all;
+      }).catch(function(e){
+        if(!retried)return new Promise(function(res){setTimeout(function(){res(one(true));},800);});
+        throw e;
       });
   }
-  return one();
+  return one(false);
 }
 $("v5ScanBtn").onclick=function(){
   var err=$("v5SectorErr");err.style.display="none";
-  if(!industriesLoaded){err.style.display="";err.textContent="行业列表尚未加载完成，请稍候再试。";return;}
+  if(!industriesLoaded){err.style.display="";err.textContent="概念板块列表尚未加载完成，请稍候再试。";return;}
   var bk=$("v5Industry").value;
-  var indName=$("v5Industry").selectedOptions[0].textContent;
+  var indName=$("v5Industry").selectedOptions[0].textContent.replace(/^★ /,"");
   var topn=Math.max(10,Math.min(60,parseInt($("v5TopN").value)||30));
   var btn=$("v5ScanBtn");btn.disabled=true;btn.textContent="扫描中…";
   $("v5ProgWrap").style.display="";$("v5Prog").style.width="0";
@@ -1455,13 +1493,13 @@ $("v5ScanBtn").onclick=function(){
       $("v5CsvBtn").onclick=function(){downloadCsv(indName+"_扫描.csv",sectorRows,
         ["code","name","score","stage2","brk","near","volr","ret60","price"],
         ["代码","名称","技术评分","Stage2","55日突破","近高位","50日量比","60日收益%","最新价"]);};
-      btn.disabled=false;btn.textContent="扫描行业强势股";
+      btn.disabled=false;btn.textContent="扫描概念板块强势股";
       setTimeout(function(){$("v5ProgWrap").style.display="none";},600);
     }
     next();
   }).catch(function(e){
     err.style.display="";err.textContent="成分股获取失败："+e.message;
-    btn.disabled=false;btn.textContent="扫描行业强势股";$("v5ProgWrap").style.display="none";
+    btn.disabled=false;btn.textContent="扫描概念板块强势股";$("v5ProgWrap").style.display="none";
   });
 };
 

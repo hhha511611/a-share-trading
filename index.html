@@ -1150,13 +1150,16 @@ function renderSignals(){
   if(indexKlines["sh000001"] && indexKlines["sz399001"] && indexKlines["sz399006"]){
     auto = [countDistDays(indexKlines["sh000001"]), countDistDays(indexKlines["sz399001"]), countDistDays(indexKlines["sz399006"])];
   }
-  var mTxt = weak
+  var mismatch = auto && auto.join()!==mg.dist.join();
+  var mTxt = mismatch
+    ? "大盘待确认：派发日 上证"+mg.dist[0]+" / 深证"+mg.dist[1]+" / 创业板"+mg.dist[2]+"。"
+    : weak
     ? "大盘走弱：派发日 上证"+mg.dist[0]+" / 深证"+mg.dist[1]+" / 创业板"+mg.dist[2]+"，停新仓。"
     : "大盘正常：派发日 上证"+mg.dist[0]+" / 深证"+mg.dist[1]+" / 创业板"+mg.dist[2]+"。";
   if(mg.follow) mTxt += "跟进日已确认。";
   if(auto) mTxt += "（自动复核 "+auto[0]+"/"+auto[1]+"/"+auto[2]+(auto.join()===mg.dist.join()?"，与手动一致":"，与手动不一致")+"）";
   mkt.textContent = mTxt;
-  mkt.className = "banner " + (weak ? "defend" : "attack");
+  mkt.className = "banner " + (mismatch ? "careful" : (weak ? "defend" : "attack"));
   $("sigDataLine").textContent = "数据：K线 " + (KLINE_DATE||"加载中") + "（本地每日更新）" + (crowdDate ? " · 拥挤度 " + crowdDate : (crowdTried ? " · 拥挤度未取到" : " · 拥挤度加载中")) + " · 行情手动刷新";
   var loaded = 0;
   V11_POOL.forEach(function(it){ var r = klines[it[1]]; if(r && r.length >= 60) loaded++; });

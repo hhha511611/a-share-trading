@@ -15,6 +15,9 @@
   1. 换手率分位：同花顺 K 线 turnover 字段直接给出。
   2. 成交额占比分位：个股成交额 ÷（上证指数成交额 + 深证成指成交额），再取分位。
   3. 融资余额占比分位：v1 未接通两融数据通道，记 null（表里显示"—"，判定按其余两项）。
+短历史（2026-11-25 修）：上市不足 250 日的股票，历史满 60 日即按实际窗口
+计算分位并在注记写明窗口天数（如"窗口仅 64 日"），不足 60 日仍记"数据不全"；
+旧门槛 200 日会使宇树科技（64 日）、超纯应材（70 日）等次新股长期空白。
 判定：≥2 项 ≥90% 记"拥挤"；仅 1 项 ≥90% 记"观察"；两项均 <90% 记"正常"；
 可用指标不足 2 项记"数据不全"。百分位定义：≤ 当日值的天数 ÷ 窗口天数 × 100。
 失败不覆盖旧文件：任一环节拿不到当日收盘数据时不写文件、退出码 0 并打印原因；
@@ -22,7 +25,9 @@
 数据源：同花顺 d.10jqka.com.cn v2 K 线（last.js + 目标年与上一年文件合并，
 去重后取最近 250 日；年文件缺失时窗口缩短，n 如实记录）。单只 5 次重试
 （45 秒超时，10/20/30/60 秒退避），第一遍失败的单只 30 秒后第二遍重拉；
-仍失败则该行记 null。
+仍失败则改走东财备用源（push2his 前复权日 K，lmt=300 覆盖 250 日窗口，
+含换手率字段；2026-11-24 前该备用源已在 market-strength 的 fetch_basis.py
+里于 Actions 上跑通）。两源都失败才记该行 null。
 补算过去某日：python fetch_crowding.py --date YYYY-MM-DD（同日行会被替换）。
 """
 import json
@@ -33,6 +38,13 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 BJ = timezone(timedelta(hours=8))
+
+# 行缓冲：管道/重定向时日志实时刷出，进程被取消也不丢已打印的行
+# （2026-11-23 大资金原型教训：块缓冲导致取消时日志全丢）
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:  # noqa: BLE001 - 旧 Python 无此方法时忽略
+    pass
 
 # 宇宙（2026-11-17 起动态规则，用户定）：8 只 V1.1 扫描池固定 + 当日换手率前 4 名动态。
 # 候选 = 产业跟踪筛选池 46 家（2026-11-17 快照，48 个条目去重；铖昌科技、中科创达各跨两板块）
@@ -78,7 +90,7 @@ DYNAMIC_N = 4
 INDICES = [("000001", "上证指数"), ("399001", "深证成指")]
 
 WINDOW = 250
-MIN_DAYS = 200
+MIN_DAYS = 60  # 短历史下限（2026-11-25 由 200 改为 60）：满 60 日即按实际窗口算分位
 KEEP_DAYS = 60
 CLOSE_GUARD_HHMM = (15, 5)  # 北京时间 15:05 前不计算（防盘中误触发）
 
@@ -163,6 +175,75 @@ def fetch_kline(code, today):
     return out
 
 
+EM_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+EM_FIELDS = ("fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
+             "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61")
+
+
+def _em_secid(code):
+    """东财 secid：沪市 1. / 深市 0.；指数：上证 1.000001、深证 0.399001。"""
+    if code.startswith("6") or code == "000001":
+        return "1." + code
+    return "0." + code
+
+
+def _parse_em_klines(klines):
+    """东财 kline 行：日期,开,收,高,低,成交量(手),成交额(元),振幅,涨跌幅,涨跌额,换手率。
+    返回 {date: (close, volume, amount, turnover)}。"""
+    out = {}
+    for line in klines:
+        parts = line.split(",")
+        if len(parts) < 11:
+            continue
+        try:
+            date = parts[0].strip()
+            close = float(parts[2])
+            volume = float(parts[5])
+            amount = float(parts[6])
+            turnover = float(parts[10]) if parts[10].strip() != "" else None
+        except (ValueError, IndexError):
+            continue
+        out[date] = (close, volume, amount, turnover)
+    return out
+
+
+def fetch_kline_em(code, today):
+    """东财备用源：push2his 前复权日 K，lmt=300 覆盖 250 日窗口。
+    返回与 fetch_kline 相同的 [(date, close, pct, volume, amount, turnover)]。
+    注意：东财为前复权序列，收盘价与同花顺在除权日前后可能有微小口径差；
+    换手率与成交额为原始值，不受复权影响，分位计算不受影响。"""
+    url = ("%s?secid=%s&klt=101&fqt=1&lmt=300&end=20500101&iscca=1&%s"
+           % (EM_KLINE_URL, _em_secid(code), EM_FIELDS))
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    last_err = None
+    merged = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                payload = json.load(r)
+            if payload.get("rc") != 0 or not payload.get("data") or not payload["data"].get("klines"):
+                raise RuntimeError("东财返回 rc=%s 或无 klines" % payload.get("rc"))
+            merged = _parse_em_klines(payload["data"]["klines"])
+            break
+        except Exception as e:  # noqa: BLE001 - 3 次尝试后才抛错
+            last_err = e
+            if attempt < 2:
+                time.sleep(10)
+    if merged is None:
+        raise RuntimeError("东财备用源拉取 %s 失败: %s" % (code, last_err))
+    dates = sorted(merged)
+    out = []
+    prev_close = None
+    for date in dates:
+        close, volume, amount, turnover = merged[date]
+        pct = 0.0 if prev_close is None or prev_close == 0 else (close / prev_close - 1.0) * 100.0
+        out.append((date, close, pct, volume, amount, turnover))
+        prev_close = close
+    if not out:
+        raise RuntimeError("东财备用源 %s 无有效 K 线" % code)
+    return out
+
+
 def pct_rank(series, today_value):
     """百分位 = ≤ 当日值的天数 ÷ 总天数 × 100，保留 1 位小数。"""
     n = len(series)
@@ -192,9 +273,10 @@ def select_dynamic(stock_series, today, candidates=None):
     return [(code, name) for _, code, name in ranked[:DYNAMIC_N]]
 
 
-def compute_day(stock_series, index_amounts, today, selected):
+def compute_day(stock_series, index_amounts, today, selected, fallback_codes=None):
     """stock_series: {code: [(date, close, pct, volume, amount, turnover)]}（已取窗口内）。
-    index_amounts: {date: 上证+深证当日成交额}。selected: [(code, name, slot)]。返回当日 rows。"""
+    index_amounts: {date: 上证+深证当日成交额}。selected: [(code, name, slot)]。
+    fallback_codes: 走东财备用源的股票代码集合，注记标注来源。返回当日 rows。"""
     rows = []
     for code, name, slot in selected:
         series = stock_series.get(code, [])
@@ -215,6 +297,10 @@ def compute_day(stock_series, index_amounts, today, selected):
         row["pct"] = round(last[2], 2)
         row["amount"] = round(last[4] / 1e8, 2)  # 亿元
         notes = []
+        if n < WINDOW:
+            notes.append("窗口仅 %d 日（上市不足 250 日）" % n)
+        if fallback_codes and code in fallback_codes:
+            notes.append("东财备用源（同花顺未取到）")
         # 指标 1：换手率分位
         turns = [d[5] for d in window if d[5] is not None]
         if len(turns) >= MIN_DAYS and last[5] is not None:
@@ -299,6 +385,36 @@ def selftest():
     fake2 = {code: rows[:-1] for code, rows in fake.items()}
     day_rows2 = compute_day(fake2, idx, today, selected)
     assert all(r["status"] == "数据不全" for r in day_rows2)
+    # 短历史：64 日窗口 -> 按实际窗口算分位（不为空），注记写明窗口
+    short_dates = dates[-64:]
+    short = {}
+    for code, _ in FIXED[:1]:
+        rows = []
+        for i, dt in enumerate(short_dates):
+            rows.append((dt, 10.0, 0.0, 100.0, 1e8 * (i + 1), 0.1 * (i + 1)))
+        short[code] = rows
+    short_rows = compute_day(short, idx, today, [(FIXED[0][0], FIXED[0][1], "fixed")])
+    assert short_rows[0]["turnover_pct"] == 100.0, short_rows[0]
+    assert short_rows[0]["n"] == 64 and "窗口仅 64 日" in short_rows[0]["note"], short_rows[0]
+    assert short_rows[0]["status"] == "拥挤", short_rows[0]
+    # 不足 60 日 -> 仍记数据不全
+    tiny_dates = dates[-30:]
+    tiny = {}
+    for code, _ in FIXED[:1]:
+        rows = []
+        for i, dt in enumerate(tiny_dates):
+            rows.append((dt, 10.0, 0.0, 100.0, 1e8 * (i + 1), 0.1 * (i + 1)))
+        tiny[code] = rows
+    tiny_rows = compute_day(tiny, idx, today, [(FIXED[0][0], FIXED[0][1], "fixed")])
+    assert tiny_rows[0]["status"] == "数据不全" and tiny_rows[0]["turnover_pct"] is None, tiny_rows[0]
+    # 东财解析：kline 行格式（日期,开,收,高,低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率）
+    em_rows = _parse_em_klines([
+        "2026-11-23,90.00,91.00,92.00,89.00,100000,910000000.00,3.00,1.00,0.90,1.50",
+        "2026-11-24,91.00,93.25,94.00,90.50,120000,1119000000.00,3.50,2.47,2.25,1.80",
+    ])
+    assert em_rows["2026-11-24"] == (93.25, 120000.0, 1119000000.0, 1.8), em_rows
+    assert _em_secid("601100") == "1.601100" and _em_secid("300308") == "0.300308"
+    assert _em_secid("000001") == "1.000001" and _em_secid("399001") == "0.399001"
     print("selftest PASS")
 
 
@@ -325,12 +441,18 @@ def main():
         if c not in all_codes:
             all_codes.append(c)
     stock_series = {}
+    em_fallback = set()
     for code in all_codes:
         try:
             stock_series[code] = fetch_kline(code, today)
-        except Exception as e:  # noqa: BLE001 - 单只失败不阻塞整表
-            print("WARN %s: %s" % (code, e))
-            stock_series[code] = []
+        except Exception as e:  # noqa: BLE001 - 同花顺失败改走东财备用源
+            print("WARN %s 同花顺失败，改走东财备用源: %s" % (code, e))
+            try:
+                stock_series[code] = fetch_kline_em(code, today)
+                em_fallback.add(code)
+            except Exception as e2:  # noqa: BLE001 - 两源都失败才记空
+                print("WARN %s 东财备用源也失败: %s" % (code, e2))
+                stock_series[code] = []
         time.sleep(2)  # 错峰，避免连续请求被限流
     # 第二遍：第一遍失败的单只在暂停后重拉一次（数据源间歇性不可达）
     failed = [c for c, s in stock_series.items() if not s]
@@ -340,8 +462,13 @@ def main():
         for code in failed:
             try:
                 stock_series[code] = fetch_kline(code, today)
-            except Exception as e:  # noqa: BLE001
-                print("WARN %s 第二遍仍失败: %s" % (code, e))
+            except Exception as e:  # noqa: BLE001 - 第二遍同花顺仍失败再试东财
+                print("WARN %s 第二遍同花顺失败，改走东财备用源: %s" % (code, e))
+                try:
+                    stock_series[code] = fetch_kline_em(code, today)
+                    em_fallback.add(code)
+                except Exception as e2:  # noqa: BLE001
+                    print("WARN %s 第二遍仍失败: %s" % (code, e2))
     if not any(stock_series.get(c) for c in fixed_codes):
         print("ERROR: 固定 8 只全部拉取失败，不写文件。")
         return 1
@@ -357,13 +484,19 @@ def main():
             for date, _c, _p, _v, amount, _t in fetch_kline(code, today):
                 if date <= today:
                     index_amounts[date] = index_amounts.get(date, 0.0) + amount
-        except Exception as e:  # noqa: BLE001 - 指数失败则指标 2 记 null
-            print("WARN 指数 %s: %s" % (code, e))
+        except Exception as e:  # noqa: BLE001 - 指数同花顺失败改走东财备用源
+            print("WARN 指数 %s 同花顺失败，改走东财备用源: %s" % (code, e))
+            try:
+                for date, _c, _p, _v, amount, _t in fetch_kline_em(code, today):
+                    if date <= today:
+                        index_amounts[date] = index_amounts.get(date, 0.0) + amount
+            except Exception as e2:  # noqa: BLE001 - 指数失败则指标 2 记 null
+                print("WARN 指数 %s 东财备用源也失败: %s" % (code, e2))
         time.sleep(2)
 
     dynamic = select_dynamic(stock_series, today)
     selected = [(c, n, "fixed") for c, n in FIXED] + [(c, n, "dynamic") for c, n in dynamic]
-    rows = compute_day(stock_series, index_amounts, today, selected)
+    rows = compute_day(stock_series, index_amounts, today, selected, fallback_codes=em_fallback)
     ranked_n = sum(1 for c in all_codes if c not in fixed_codes
                    and stock_series.get(c) and stock_series[c][-1][0] == today
                    and stock_series[c][-1][5] is not None)

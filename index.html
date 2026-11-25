@@ -116,7 +116,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
   <h1>A股交易首页</h1>
   <div class="caption">交易决策工作台 · V1.1 ＋ V5 智能分析 · <a href="crowding.html" style="color:#1677ff">拥挤度附带表（观察口径）</a> · <a href="kelly.html" style="color:#1677ff">凯利公式计算器（独立研究工具）</a> · <a href="chan.html" style="color:#1677ff">AI缠论工具（独立研究工具）</a></div>
   <div class="caption" id="bjTime"></div>
-  <div class="caption">行情来源：腾讯财经公开行情接口</div>
+  <div class="caption">行情来源：腾讯财经公开行情接口 · 版本 2026-11-25（信号总览 · 板块源：新浪）</div>
   <div class="seg" id="tabBar">
     <button data-tab="sig" class="on">信号总览</button>
     <button data-tab="v11">V1.1 系统</button>
@@ -342,7 +342,7 @@ textarea.v5ta{width:100%;min-height:70px;border:1px solid #ddd;border-radius:9px
 
 <!-- 板块筛选 -->
 <div id="v5mSector" style="display:none">
-  <div class="field" style="margin-top:10px"><label>选择概念板块（东方财富概念板块）</label><input id="v5BoardFilter" type="text" placeholder="输入关键词筛选，如：机器人、电池、航天" autocomplete="off"><select id="v5Industry" style="margin-top:6px"><option>加载中…</option></select></div>
+  <div class="field" style="margin-top:10px"><label>选择概念板块（新浪概念板块）</label><input id="v5BoardFilter" type="text" placeholder="输入关键词筛选，如：机器人、电池、航天" autocomplete="off"><select id="v5Industry" style="margin-top:6px"><option>加载中…</option></select></div>
   <div class="field"><label>扫描数量（按成交额优先，10–60）</label><input id="v5TopN" type="number" value="30" min="10" max="60" inputmode="numeric"></div>
   <button class="btn" id="v5ScanBtn">扫描概念板块强势股</button>
   <div class="progress" id="v5ProgWrap" style="display:none"><div id="v5Prog"></div></div>
@@ -1560,11 +1560,11 @@ function drawChart(t){
 /* ---------- 板块筛选 ---------- */
 var industriesLoaded=false,sectorRows=[];
 var allBoards=[],pinnedBoards=[];
-/* 跟踪池 8 板块在东财概念板块里的名字（前缀匹配，如 AI制药→AI制药（医疗））；东财无同名板块时该项不置顶、不报错 */
-var PINNED_NAMES=["固态电池","人形机器人","商业航天","6G","物理AI","AI制药","AI应用","半导体设备"];
-function boardUrl(pn){
-  return "https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14";
-}
+/* 跟踪池 8 板块在新浪概念里的名字：match 为快照里的实际板块名（AI制药→AI应用（医药医疗）无前缀匹配，须全名）；新浪无同名板块时该项不置顶、不报错 */
+var PINNED_NAMES=[
+  {match:"固态电池"},{match:"人形机器人"},{match:"商业航天"},{match:"6G概念"},
+  {match:"物理AI"},{match:"AI应用（医药医疗）"},{match:"AI应用"},{match:"半导体设备"}
+];
 /* fetch 超时：AbortController，超时即 reject，避免慢速滴答回包把页面挂死（JSONP 那几路已有 12–25 秒超时，fetch 这几路原来没有） */
 function fetchTimeout(url,ms,opts){
   opts=opts||{};
@@ -1596,63 +1596,44 @@ function renderBoards(){
   if(cur){for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===cur){sel.selectedIndex=i;break;}}}
   if(!sel.options.length)sel.innerHTML="<option>无匹配的概念板块，换个关键词试试</option>";
 }
+/* 概念板块清单改走本地快照 data/boards.json（新浪热门概念+概念板块，2026-11-25 取，同名去重 834 个）：东财 clist 当前频繁 502，手机端多次拉取失败；清单变化慢，快照优先加载、同源必通 */
 function loadIndustries(){
   if(industriesLoaded)return;
-  var sel=$("v5Industry"),all=[],failed=[];
-  var loadOpt=sel.options[0];
-  function setProg(){if(loadOpt)loadOpt.textContent="概念板块加载中…（已取 "+all.length+" 个）";}
-  /* 单页：失败记页号、不抛错（由外层汇总），供并行拉取 */
-  function page(pn){
-    return fetchJsonRetry(boardUrl(pn),2,800).then(function(j){
-      var d=j&&j.data;
-      return {diff:(d&&d.diff)||[],total:(d&&d.total)||0};
-    }).catch(function(){failed.push(pn);return {diff:[],total:0};});
-  }
-  /* 先拉第 1 页拿到总数，再并行拉剩余页：6 页串行改并行，总耗时≈最慢的一页 */
-  page(1).then(function(r1){
-    all=all.concat(r1.diff);
-    if(!all.length)throw new Error("empty");
-    setProg();
-    var pages=r1.total?Math.min(10,Math.ceil(r1.total/100)):6;
-    if(pages<=1)return;
-    var rest=[];
-    for(var p=2;p<=pages;p++){
-      rest.push(page(p).then(function(r){all=all.concat(r.diff);setProg();}));
-    }
-    return Promise.all(rest);
-  }).then(function(){
+  var sel=$("v5Industry");
+  fetchTimeout("data/boards.json",10000,{cache:"no-store"}).then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status); return r.json();
+  }).then(function(j){
+    var all=(j&&j.boards)||[];
     if(!all.length)throw new Error("empty");
     allBoards=all;
     var used={};
-    PINNED_NAMES.forEach(function(n){
-      for(var i=0;i<all.length;i++){if(all[i].f14.indexOf(n)===0&&!used[all[i].f12]){pinnedBoards.push(all[i]);used[all[i].f12]=1;break;}}
+    PINNED_NAMES.forEach(function(p){
+      for(var i=0;i<all.length;i++){if(all[i].f14.indexOf(p.match)===0&&!used[all[i].f12]){pinnedBoards.push(all[i]);used[all[i].f12]=1;break;}}
     });
     renderBoards();
     industriesLoaded=true;
-    if(failed.length){
-      var lab=document.querySelector("#v5mSector label");
-      if(lab)lab.textContent="选择概念板块（东方财富概念板块，已加载 "+all.length+" 个，第 "+failed.join("、")+" 页未加载，可下拉刷新重试）";
-    }
+    var lab=document.querySelector("#v5mSector label");
+    if(lab)lab.textContent="选择概念板块（新浪热门概念+概念板块，"+(j.date||"")+" 快照，共 "+all.length+" 个）";
   }).catch(function(){
-    sel.innerHTML="<option>概念板块列表加载失败，请切换网络后重进此页</option>";
+    sel.innerHTML="<option>概念板块列表加载失败（本地快照），请重进此页重试</option>";
+    industriesLoaded=false;
   });
 }
 $("v5BoardFilter").oninput=function(){if(industriesLoaded)renderBoards();};
-function emFetchAll(fs,fields){
-  var all=[],pn=1;
-  function one(retried){
-    return fetchTimeout("https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs="+encodeURIComponent(fs)+"&fields="+fields,15000)
-      .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(j){
-        var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return all;
-        all=all.concat(d.diff);
-        if(d.total>pn*100){pn++;return one(false);}
-        return all;
-      }).catch(function(e){
-        if(!retried)return new Promise(function(res){setTimeout(function(){res(one(true));},800);});
-        throw e;
-      });
-  }
-  return one(false);
+/* 板块成分股改走新浪 getHQNodeData（CORS *、实测约 2 秒、按成交额降序一次取 100 只）：东财 clist 频繁 502；新浪返回 GBK 编码 JSON，须 arrayBuffer + TextDecoder('gbk') 解码，直接 .json() 会乱码 */
+function sinaBoardStocks(node){
+  var url="https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=amount&asc=0&node="+encodeURIComponent(node)+"&_s_r_a=page";
+  return fetchTimeout(url,15000).then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status); return r.arrayBuffer();
+  }).then(function(buf){
+    var txt;
+    try{ txt=new TextDecoder("gbk").decode(buf); }catch(e){ txt=new TextDecoder("utf-8").decode(buf); }
+    var j=JSON.parse(txt);
+    if(!j||!j.length)throw new Error("empty");
+    return j.map(function(d){
+      return {f12:String(d.code||""), f14:d.name||"", f6:(parseFloat(d.amount)||0)/10000};
+    }).filter(function(d){ return /^\d{6}$/.test(d.f12); });
+  });
 }
 $("v5ScanBtn").onclick=function(){
   var err=$("v5SectorErr");err.style.display="none";
@@ -1663,7 +1644,7 @@ $("v5ScanBtn").onclick=function(){
   var btn=$("v5ScanBtn");btn.disabled=true;btn.textContent="扫描中…";
   $("v5ProgWrap").style.display="";$("v5Prog").style.width="0";
   $("v5CsvBtn").style.display="none";sectorRows=[];
-  emFetchAll("b:"+bk,"f12,f14,f2,f6").then(function(cons){
+  sinaBoardStocks(bk).then(function(cons){
     var rows=cons.filter(function(d){return d.f12&&/^\d{6}$/.test(String(d.f12));})
       .map(function(d){return {code:String(d.f12),name:d.f14||"",amt:parseFloat(d.f6)||0};})
       .sort(function(a,b){return b.amt-a.amt;}).slice(0,topn);

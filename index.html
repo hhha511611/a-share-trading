@@ -723,8 +723,16 @@ if($("klineRetryBtn")) $("klineRetryBtn").onclick = function(){
 };
 /* ---------- 刷新时同步拉取 8 只 K 线 ---------- */
 /* 本地每日 K 线（同源 data/klines.json，由 GitHub Actions 收盘后更新）优先 */
+/* fetch 超时：同 V5（该块独立作用域，另备一份） */
+function fetchTimeout(url,ms,opts){
+  opts=opts||{};
+  if(typeof AbortController==="undefined")return fetch(url,opts);
+  var c=new AbortController(),t=setTimeout(function(){c.abort();},ms||15000);
+  opts.signal=c.signal;
+  return fetch(url,opts).then(function(r){clearTimeout(t);return r;},function(e){clearTimeout(t);throw e;});
+}
 function loadLocalKlines(){
-  return fetch("data/klines.json",{cache:"no-store"}).then(function(r){
+  return fetchTimeout("data/klines.json",10000,{cache:"no-store"}).then(function(r){
     if(!r.ok) throw 0;
     return r.json();
   }).then(function(j){
@@ -1268,7 +1276,7 @@ function fetchFin(code){
   var url="https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_LICO_FN_CPD&columns="+cols
     +"&filter="+encodeURIComponent('(SECURITY_CODE="'+code+'")')
     +"&pageNumber=1&pageSize=1&sortColumns=REPORTDATE&sortTypes=-1";
-  return fetch(url).then(function(r){return r.json();}).then(function(j){
+  return fetchTimeout(url,12000).then(function(r){return r.json();}).then(function(j){
     var d=j&&j.result&&j.result.data&&j.result.data[0];
     if(!d||d.YSTZ===null||d.YSTZ===undefined)return null;
     return {reportDate:String(d.REPORTDATE||"").slice(0,10),qdate:d.QDATE||"",
@@ -1393,8 +1401,16 @@ var PINNED_NAMES=["固态电池","人形机器人","商业航天","6G","物理AI
 function boardUrl(pn){
   return "https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14";
 }
+/* fetch 超时：AbortController，超时即 reject，避免慢速滴答回包把页面挂死（JSONP 那几路已有 12–25 秒超时，fetch 这几路原来没有） */
+function fetchTimeout(url,ms,opts){
+  opts=opts||{};
+  if(typeof AbortController==="undefined")return fetch(url,opts);
+  var c=new AbortController(),t=setTimeout(function(){c.abort();},ms||15000);
+  opts.signal=c.signal;
+  return fetch(url,opts).then(function(r){clearTimeout(t);return r;},function(e){clearTimeout(t);throw e;});
+}
 function fetchJsonRetry(url,retries,delay){
-  return fetch(url).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+  return fetchTimeout(url,15000).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
     .catch(function(e){
       if(retries>0)return new Promise(function(res){setTimeout(function(){res(fetchJsonRetry(url,retries-1,(delay||800)*2));},delay||800);});
       throw e;
@@ -1418,23 +1434,29 @@ function renderBoards(){
 }
 function loadIndustries(){
   if(industriesLoaded)return;
-  var sel=$("v5Industry"),all=[],pn=1,failed=[];
-  function wait(ms){return new Promise(function(res){setTimeout(res,ms);});}
-  function page(){
+  var sel=$("v5Industry"),all=[],failed=[];
+  var loadOpt=sel.options[0];
+  function setProg(){if(loadOpt)loadOpt.textContent="概念板块加载中…（已取 "+all.length+" 个）";}
+  /* 单页：失败记页号、不抛错（由外层汇总），供并行拉取 */
+  function page(pn){
     return fetchJsonRetry(boardUrl(pn),2,800).then(function(j){
       var d=j&&j.data;
-      if(d&&d.diff&&d.diff.length){
-        all=all.concat(d.diff);
-        if(d.total&&all.length<d.total&&pn<10){pn++;return wait(400).then(page);}
-        if(!d.total&&d.diff.length>=100&&pn<10){pn++;return wait(400).then(page);}
-      }
-    }).catch(function(){
-      /* 单页失败不中断整表：跳过该页继续拉下一页（东财接口今天多次 502，整页失败是常态） */
-      failed.push(pn);
-      if(pn<10){pn++;return wait(400).then(page);}
-    });
+      return {diff:(d&&d.diff)||[],total:(d&&d.total)||0};
+    }).catch(function(){failed.push(pn);return {diff:[],total:0};});
   }
-  page().then(function(){
+  /* 先拉第 1 页拿到总数，再并行拉剩余页：6 页串行改并行，总耗时≈最慢的一页 */
+  page(1).then(function(r1){
+    all=all.concat(r1.diff);
+    if(!all.length)throw new Error("empty");
+    setProg();
+    var pages=r1.total?Math.min(10,Math.ceil(r1.total/100)):6;
+    if(pages<=1)return;
+    var rest=[];
+    for(var p=2;p<=pages;p++){
+      rest.push(page(p).then(function(r){all=all.concat(r.diff);setProg();}));
+    }
+    return Promise.all(rest);
+  }).then(function(){
     if(!all.length)throw new Error("empty");
     allBoards=all;
     var used={};
@@ -1455,7 +1477,7 @@ $("v5BoardFilter").oninput=function(){if(industriesLoaded)renderBoards();};
 function emFetchAll(fs,fields){
   var all=[],pn=1;
   function one(retried){
-    return fetch("https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs="+encodeURIComponent(fs)+"&fields="+fields)
+    return fetchTimeout("https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs="+encodeURIComponent(fs)+"&fields="+fields,15000)
       .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(j){
         var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return all;
         all=all.concat(d.diff);
@@ -1481,21 +1503,24 @@ $("v5ScanBtn").onclick=function(){
     var rows=cons.filter(function(d){return d.f12&&/^\d{6}$/.test(String(d.f12));})
       .map(function(d){return {code:String(d.f12),name:d.f14||"",amt:parseFloat(d.f6)||0};})
       .sort(function(a,b){return b.amt-a.amt;}).slice(0,topn);
-    var out=[],i=0;
-    function next(){
-      if(i>=rows.length){finish();return;}
-      var r=rows[i];
-      sinaKline(sinaSym(r.code),250).then(function(kl){
+    var out=[],done=0,idx=0,CONC=4;
+    function worker(){
+      if(idx>=rows.length)return Promise.resolve();
+      var r=rows[idx++];
+      return sinaKline(sinaSym(r.code),250).then(function(kl){
         var t=calcTech(kl);
         if(t)out.push({code:r.code,name:r.name,amt:r.amt,score:techScore(t),stage2:t.stage2?"是":"否",
           brk:t.breakout55?"是":"否",near:t.nearhigh?"是":"否",
           volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
           ret60:isNaN(t.ret60)?DASH:(t.ret60*100).toFixed(2)+"%",price:t.price});
       }).catch(function(){}).finally(function(){
-        i++;$("v5Prog").style.width=Math.round(i/rows.length*100)+"%";
-        setTimeout(next,120);
+        done++;$("v5Prog").style.width=Math.round(done/rows.length*100)+"%";
+        return worker();
       });
     }
+    var workers=[];
+    for(var w=0;w<Math.min(CONC,rows.length);w++)workers.push(worker());
+    Promise.all(workers).then(finish);
     function finish(){
       out.sort(function(a,b){return b.score-a.score;});
       sectorRows=out;
@@ -1511,7 +1536,6 @@ $("v5ScanBtn").onclick=function(){
       btn.disabled=false;btn.textContent="扫描概念板块强势股";
       setTimeout(function(){$("v5ProgWrap").style.display="none";},600);
     }
-    next();
   }).catch(function(e){
     err.style.display="";err.textContent="成分股获取失败："+e.message;
     btn.disabled=false;btn.textContent="扫描概念板块强势股";$("v5ProgWrap").style.display="none";
@@ -1528,11 +1552,11 @@ $("v5CmpBtn").onclick=function(){
   $("v5CmpCsvBtn").style.display="none";cmpRows=[];
   var qcodes=codes.map(function(c){return {mkt:mktOf(c),code:c};});
   qqQuote(qcodes).catch(function(){return {};}).then(function(qmap){
-    var out=[],i=0;
-    function next(){
-      if(i>=codes.length){finish();return;}
-      var c=codes[i];
-      sinaKline(sinaSym(c),350).then(function(kl){
+    var out=[],done=0,idx=0,CONC=4;
+    function worker(){
+      if(idx>=codes.length)return Promise.resolve();
+      var c=codes[idx++];
+      return sinaKline(sinaSym(c),350).then(function(kl){
         var t=calcTech(kl),q=qmap[c]||{};
         if(t)out.push({code:c,name:q.name||"",score:techScore(t),stage2:t.stage2?"是":"否",
           brk:t.breakout55?"是":"否",volr:isNaN(t.volratio)?DASH:t.volratio.toFixed(2)+"x",
@@ -1540,8 +1564,11 @@ $("v5CmpBtn").onclick=function(){
           price:!isNaN(q.price)?q.price:t.price});
         else out.push({code:c,name:q.name||"",score:DASH,stage2:DASH,brk:DASH,volr:DASH,ret60:DASH,price:DASH,err:"K线不足"});
       }).catch(function(){out.push({code:c,name:"",score:DASH,stage2:DASH,brk:DASH,volr:DASH,ret60:DASH,price:DASH,err:"请求失败"});})
-      .finally(function(){i++;setTimeout(next,120);});
+      .finally(function(){done++;return worker();});
     }
+    var workers=[];
+    for(var w=0;w<Math.min(CONC,codes.length);w++)workers.push(worker());
+    Promise.all(workers).then(finish);
     function finish(){
       out.sort(function(a,b){return (b.score===DASH?-1:b.score)-(a.score===DASH?-1:a.score);});
       cmpRows=out;
@@ -1555,7 +1582,6 @@ $("v5CmpBtn").onclick=function(){
         ["代码","名称","技术评分","Stage2","55日突破","50日量比","60日收益%","最新价"]);};
       btn.disabled=false;btn.textContent="比较股票";
     }
-    next();
   });
 };
 function downloadCsv(filename,rows,keys,headers){

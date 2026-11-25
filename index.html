@@ -1393,9 +1393,12 @@ var PINNED_NAMES=["固态电池","人形机器人","商业航天","6G","物理AI
 function boardUrl(pn){
   return "https://push2.eastmoney.com/api/qt/clist/get?pn="+pn+"&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14";
 }
-function fetchJsonRetry(url,retries){
+function fetchJsonRetry(url,retries,delay){
   return fetch(url).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
-    .catch(function(e){if(retries>0)return new Promise(function(res){setTimeout(function(){res(fetchJsonRetry(url,retries-1));},800);});throw e;});
+    .catch(function(e){
+      if(retries>0)return new Promise(function(res){setTimeout(function(){res(fetchJsonRetry(url,retries-1,(delay||800)*2));},delay||800);});
+      throw e;
+    });
 }
 function renderBoards(){
   var sel=$("v5Industry"),q=(($("v5BoardFilter").value)||"").trim();
@@ -1415,12 +1418,20 @@ function renderBoards(){
 }
 function loadIndustries(){
   if(industriesLoaded)return;
-  var sel=$("v5Industry"),all=[],pn=1;
+  var sel=$("v5Industry"),all=[],pn=1,failed=[];
+  function wait(ms){return new Promise(function(res){setTimeout(res,ms);});}
   function page(){
-    return fetchJsonRetry(boardUrl(pn),1).then(function(j){
-      var d=j&&j.data;if(!d||!d.diff||!d.diff.length)return;
-      all=all.concat(d.diff);
-      if(d.total&&all.length<d.total&&pn<10){pn++;return page();}
+    return fetchJsonRetry(boardUrl(pn),2,800).then(function(j){
+      var d=j&&j.data;
+      if(d&&d.diff&&d.diff.length){
+        all=all.concat(d.diff);
+        if(d.total&&all.length<d.total&&pn<10){pn++;return wait(400).then(page);}
+        if(!d.total&&d.diff.length>=100&&pn<10){pn++;return wait(400).then(page);}
+      }
+    }).catch(function(){
+      /* 单页失败不中断整表：跳过该页继续拉下一页（东财接口今天多次 502，整页失败是常态） */
+      failed.push(pn);
+      if(pn<10){pn++;return wait(400).then(page);}
     });
   }
   page().then(function(){
@@ -1432,6 +1443,10 @@ function loadIndustries(){
     });
     renderBoards();
     industriesLoaded=true;
+    if(failed.length){
+      var lab=document.querySelector("#v5mSector label");
+      if(lab)lab.textContent="选择概念板块（东方财富概念板块，已加载 "+all.length+" 个，第 "+failed.join("、")+" 页未加载，可下拉刷新重试）";
+    }
   }).catch(function(){
     sel.innerHTML="<option>概念板块列表加载失败，请切换网络后重进此页</option>";
   });

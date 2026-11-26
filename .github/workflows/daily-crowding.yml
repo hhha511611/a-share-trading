@@ -5,6 +5,12 @@ on:
     # 每天 15:45 北京时间（A股收盘后），仅交易日；节假日无新数据时脚本保留旧文件
     - cron: '45 7 * * 1-5'
   workflow_dispatch:
+    inputs:
+      date:
+        description: '补算日期（YYYY-MM-DD，留空则算当日）'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -15,11 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: 计算拥挤度并写入 data/crowding.json
-        run: python3 fetch_crowding.py
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then python3 fetch_crowding.py --date "${{ inputs.date }}"; else python3 fetch_crowding.py; fi
       - name: 提交更新
         run: |
           git config user.name "crowding-bot"
           git config user.email "crowding-bot@users.noreply.github.com"
           git add data/crowding.json
-          git diff --cached --quiet || git commit -m "每日拥挤度 $(date +%F)"
+          TARGET="${{ inputs.date }}"
+          [ -z "$TARGET" ] && TARGET=$(date +%F)
+          git diff --cached --quiet || git commit -m "每日拥挤度 $TARGET"
           git push
